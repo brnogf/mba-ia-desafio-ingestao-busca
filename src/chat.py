@@ -1,6 +1,10 @@
 import os
 import sys
 import time
+import argparse
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Suporte a UTF-8 no Windows para evitar erros de codificação de console (cp1252)
 if sys.platform == "win32":
@@ -10,8 +14,19 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# Garante acesso à raiz do projeto
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Parâmetros e variáveis de ambiente
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_EMBEDDING_MODEL = os.getenv("GOOGLE_EMBEDDING_MODEL", "models/gemini-embedding-2")
+GOOGLE_CHAT_MODEL = os.getenv("GOOGLE_CHAT_MODEL", "gemini-flash-lite-latest")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/rag")
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
+PG_VECTOR_COLLECTION_NAME = os.getenv("PG_VECTOR_COLLECTION_NAME", "documentos_fullcycle")
+PDF_PATH = os.getenv("PDF_PATH", "./document.pdf")
+TOP_K = int(os.getenv("TOP_K", "10"))
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
 
 from search import (
     search_prompt,
@@ -19,11 +34,6 @@ from search import (
     get_vector_store,
     get_llm,
 )
-
-try:
-    from src.config import settings
-except ImportError:
-    from config import settings
 
 try:
     from rich.console import Console
@@ -42,7 +52,7 @@ def get_chunk_count() -> int:
     """Consulta o PostgreSQL de forma rápida para obter o total de chunks na collection."""
     try:
         import psycopg
-        conn_str = settings.normalized_database_url.replace("postgresql+psycopg://", "postgresql://")
+        conn_str = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
         with psycopg.connect(conn_str) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -52,7 +62,7 @@ def get_chunk_count() -> int:
                     JOIN langchain_pg_collection c ON e.collection_id = c.uuid
                     WHERE c.name = %s;
                     """,
-                    (settings.PG_VECTOR_COLLECTION_NAME,),
+                    (PG_VECTOR_COLLECTION_NAME,),
                 )
                 res = cur.fetchone()
                 return res[0] if res else 0
@@ -69,10 +79,10 @@ def print_banner():
         banner_text = (
             "[bold white]FULL CYCLE MBA • ENGENHARIA DE SOFTWARE COM IA[/bold white]\n"
             "[cyan]Assistente de Busca Semântica e RAG com PostgreSQL (pgvector)[/cyan]\n\n"
-            f"[dim]LLM:[/dim] [bold green]{settings.GOOGLE_CHAT_MODEL}[/bold green]  •  "
-            f"[dim]Embeddings:[/dim] [bold green]{settings.GOOGLE_EMBEDDING_MODEL}[/bold green]\n"
+            f"[dim]LLM:[/dim] [bold green]{GOOGLE_CHAT_MODEL}[/bold green]  •  "
+            f"[dim]Embeddings:[/dim] [bold green]{GOOGLE_EMBEDDING_MODEL}[/bold green]\n"
             f"[dim]Base:[/dim] [bold yellow]PostgreSQL + pgvector[/bold yellow] ([yellow]{chunk_badge}[/yellow])  •  "
-            f"[dim]Top-K:[/dim] [bold magenta]{settings.TOP_K}[/bold magenta]\n\n"
+            f"[dim]Top-K:[/dim] [bold magenta]{TOP_K}[/bold magenta]\n\n"
             "[dim]Comandos:[/dim] [bold cyan]/ajuda[/bold cyan] [dim]|[/dim] "
             "[bold cyan]/info[/bold cyan] [dim]|[/dim] "
             "[bold cyan]/limpar[/bold cyan] [dim]|[/dim] "
@@ -96,7 +106,7 @@ def print_banner():
 
     print("\n" + "=" * 55)
     print("  FULL CYCLE MBA - CHATBOT RAG (MVP)")
-    print(f"  Modelo: {settings.GOOGLE_CHAT_MODEL} | pgVector (k={settings.TOP_K})")
+    print(f"  Modelo: {GOOGLE_CHAT_MODEL} | pgVector (k={TOP_K})")
     print("  Comandos: /ajuda, /info, /limpar, /sair")
     print("=" * 55 + "\n")
 
@@ -119,20 +129,20 @@ def show_system_info():
 
         table.add_row("[yellow]INFRAESTRUTURA[/yellow]", "")
         table.add_row("  Banco de Dados", "PostgreSQL 17 + pgvector (localhost:5432/rag)")
-        table.add_row("  Coleção no pgvector", f"{settings.PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks armazenados)")
+        table.add_row("  Coleção no pgvector", f"{PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks armazenados)")
         table.add_row("  Driver / Conexão", "psycopg 3 (Pool Singleton ativo)")
         table.add_section()
 
         table.add_row("[yellow]INGESTÃO DE DADOS[/yellow]", "")
-        table.add_row("  Documento Fonte", f"{settings.PDF_PATH} (34 páginas, ~175 KB)")
-        table.add_row("  Divisão de Texto (Split)", f"{settings.CHUNK_SIZE} caracteres por chunk (overlap: {settings.CHUNK_OVERLAP})")
+        table.add_row("  Documento Fonte", f"{PDF_PATH} (34 páginas, ~175 KB)")
+        table.add_row("  Divisão de Texto (Split)", f"{CHUNK_SIZE} caracteres por chunk (overlap: {CHUNK_OVERLAP})")
         table.add_row("  Estratégia de Ingestão", "Idempotente (SHA-256 verificado)")
         table.add_section()
 
         table.add_row("[yellow]INTELIGÊNCIA ARTIFICIAL[/yellow]", "")
-        table.add_row("  Modelo de Embeddings", f"{settings.GOOGLE_EMBEDDING_MODEL} (768 dimensões)")
-        table.add_row("  Modelo LLM (Geração)", f"{settings.GOOGLE_CHAT_MODEL} (temperatura: 0.0)")
-        table.add_row("  Recuperação Semântica", f"Top-{settings.TOP_K} chunks mais relevantes (k={settings.TOP_K})")
+        table.add_row("  Modelo de Embeddings", f"{GOOGLE_EMBEDDING_MODEL} (768 dimensões)")
+        table.add_row("  Modelo LLM (Geração)", f"{GOOGLE_CHAT_MODEL} (temperatura: 0.0)")
+        table.add_row("  Recuperação Semântica", f"Top-{TOP_K} chunks mais relevantes (k={TOP_K})")
         table.add_row("  Protocolo de Transporte", "REST API (otimizado para ambientes Windows)")
         table.add_row("  Medição de Latência", "Dinâmica em tempo real (registrada por consulta)")
 
@@ -143,12 +153,12 @@ def show_system_info():
 
     print("\n--- Diagnóstico Técnico (RAG) ---")
     print(f"Banco de Dados: PostgreSQL 17 + pgvector (localhost:5432/rag)")
-    print(f"Coleção pgvector: {settings.PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks)")
-    print(f"Documento Fonte: {settings.PDF_PATH} (34 páginas)")
-    print(f"Segmentação: {settings.CHUNK_SIZE} chars / overlap {settings.CHUNK_OVERLAP}")
-    print(f"Embeddings: {settings.GOOGLE_EMBEDDING_MODEL}")
-    print(f"Modelo LLM: {settings.GOOGLE_CHAT_MODEL} (temp: 0.0)")
-    print(f"Busca Semântica: Top-{settings.TOP_K} chunks")
+    print(f"Coleção pgvector: {PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks)")
+    print(f"Documento Fonte: {PDF_PATH} (34 páginas)")
+    print(f"Segmentação: {CHUNK_SIZE} chars / overlap {CHUNK_OVERLAP}")
+    print(f"Embeddings: {GOOGLE_EMBEDDING_MODEL}")
+    print(f"Modelo LLM: {GOOGLE_CHAT_MODEL} (temp: 0.0)")
+    print(f"Busca Semântica: Top-{TOP_K} chunks")
     print("---------------------------------\n")
 
 
@@ -202,6 +212,10 @@ def show_help():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Full Cycle MBA - Assistente RAG de Busca Semântica")
+    parser.add_argument("-q", "--query", type=str, help="Executa uma consulta direta e encerra")
+    args = parser.parse_args()
+
     # Pré-aquece conexões em background na inicialização
     try:
         get_vector_store()
@@ -215,6 +229,29 @@ def main():
             console.print("[bold red]Erro crítico:[/bold red] Não foi possível inicializar a cadeia de busca.")
         else:
             print("Não foi possível iniciar o chat. Verifique os erros de inicialização.")
+        return
+
+    # Execução direta via flag --query (para testes automatizados e scripts)
+    if args.query:
+        pergunta = args.query.strip()
+        t0 = time.time()
+        resposta, paginas = ask_and_get_pages(pergunta)
+        elapsed = time.time() - t0
+
+        if USE_RICH:
+            console.print(f"[bold yellow]PERGUNTA:[/bold yellow] {pergunta}")
+            console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}")
+            if "Não tenho informações necessárias" not in resposta and paginas:
+                paginas_str = ", ".join(str(p) for p in paginas)
+                label = "Página da informação:" if len(paginas) == 1 else "Páginas da informação:"
+                console.print(f"[dim cyan]{label}[/dim cyan] [bold cyan]{paginas_str}[/bold cyan] [dim]({PDF_PATH}) • Tempo:[/dim] [dim green]{elapsed:.2f}s[/dim green]")
+        else:
+            print(f"PERGUNTA: {pergunta}")
+            print(f"RESPOSTA: {resposta}")
+            if "Não tenho informações necessárias" not in resposta and paginas:
+                paginas_str = ", ".join(str(p) for p in paginas)
+                label = "Página da informação" if len(paginas) == 1 else "Páginas da informação"
+                print(f"[{label}: {paginas_str} ({PDF_PATH}) - {elapsed:.2f}s]")
         return
 
     print_banner()
@@ -279,7 +316,7 @@ def main():
                     label = "Página da informação:" if len(paginas) == 1 else "Páginas da informação:"
                     console.print(
                         f"[dim cyan]{label}[/dim cyan] [bold cyan]{paginas_str}[/bold cyan] "
-                        f"[dim]({settings.PDF_PATH}) • Tempo:[/dim] [dim green]{elapsed:.2f}s[/dim green]\n"
+                        f"[dim]({PDF_PATH}) • Tempo:[/dim] [dim green]{elapsed:.2f}s[/dim green]\n"
                     )
                 else:
                     console.print(
@@ -296,7 +333,7 @@ def main():
                 if "Não tenho informações necessárias" not in resposta and paginas:
                     paginas_str = ", ".join(str(p) for p in paginas)
                     label = "Página da informação" if len(paginas) == 1 else "Páginas da informação"
-                    print(f"[{label}: {paginas_str} ({settings.PDF_PATH}) - {elapsed:.2f}s]\n")
+                    print(f"[{label}: {paginas_str} ({PDF_PATH}) - {elapsed:.2f}s]\n")
                 else:
                     print(f"[Tempo: {elapsed:.2f}s]\n")
 

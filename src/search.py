@@ -2,19 +2,25 @@ import os
 import sys
 import re
 from typing import Tuple, List, Optional, Union, Any
+from dotenv import load_dotenv
 
-# Suporte a execução de diferentes pontos de entrada
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+load_dotenv()
+
+# Parâmetros e variáveis de ambiente
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_EMBEDDING_MODEL = os.getenv("GOOGLE_EMBEDDING_MODEL", "models/gemini-embedding-2")
+GOOGLE_CHAT_MODEL = os.getenv("GOOGLE_CHAT_MODEL", "gemini-flash-lite-latest")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/rag")
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
+PG_VECTOR_COLLECTION_NAME = os.getenv("PG_VECTOR_COLLECTION_NAME", "documentos_fullcycle")
+TOP_K = int(os.getenv("TOP_K", "10"))
 
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableLambda
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_postgres import PGVector
-
-try:
-    from src.config import settings
-except ImportError:
-    from config import settings
 
 
 # Template exigido estritamente pelo desafio Full Cycle
@@ -57,13 +63,13 @@ def get_vector_store() -> PGVector:
     global _CACHED_VECTOR_STORE
     if _CACHED_VECTOR_STORE is None:
         embeddings = GoogleGenerativeAIEmbeddings(
-            model=settings.GOOGLE_EMBEDDING_MODEL,
-            google_api_key=settings.GOOGLE_API_KEY,
+            model=GOOGLE_EMBEDDING_MODEL,
+            google_api_key=GOOGLE_API_KEY,
         )
         _CACHED_VECTOR_STORE = PGVector(
             embeddings=embeddings,
-            collection_name=settings.PG_VECTOR_COLLECTION_NAME,
-            connection=settings.normalized_database_url,
+            collection_name=PG_VECTOR_COLLECTION_NAME,
+            connection=DATABASE_URL,
             use_jsonb=True,
         )
     return _CACHED_VECTOR_STORE
@@ -74,8 +80,8 @@ def get_llm() -> ChatGoogleGenerativeAI:
     global _CACHED_LLM
     if _CACHED_LLM is None:
         _CACHED_LLM = ChatGoogleGenerativeAI(
-            model=settings.GOOGLE_CHAT_MODEL,
-            google_api_key=settings.GOOGLE_API_KEY,
+            model=GOOGLE_CHAT_MODEL,
+            google_api_key=GOOGLE_API_KEY,
             temperature=0.0,
             transport="rest",
         )
@@ -87,16 +93,13 @@ def search_context_and_pages(query: str, vector_store: PGVector) -> Tuple[str, L
     Recupera os k=10 chunks mais relevantes e extrai as páginas citadas.
     Retorna (contexto, lista_paginas_ordenadas, melhor_score).
     """
-    results = vector_store.similarity_search_with_score(query, k=settings.TOP_K)
+    results = vector_store.similarity_search_with_score(query, k=TOP_K)
     
     if not results:
         return "", [], 1.0
 
     contexto = "\n\n".join([doc.page_content for doc, _score in results])
-    
-    # Extrai números únicos de páginas ordenadas para citação
     paginas = sorted(list({doc.metadata.get("page", 0) + 1 for doc, _score in results if "page" in doc.metadata}))
-    
     melhor_score = min([score for _doc, score in results])
     return contexto, paginas, melhor_score
 
@@ -163,7 +166,7 @@ def ask_and_get_pages(query: str) -> Tuple[str, List[int]]:
     llm = get_llm()
     prompt = PromptTemplate.from_template(PROMPT_TEMPLATE)
 
-    results = vector_store.similarity_search_with_score(query, k=settings.TOP_K)
+    results = vector_store.similarity_search_with_score(query, k=TOP_K)
     if not results:
         return FALLBACK_RESPONSE, []
 

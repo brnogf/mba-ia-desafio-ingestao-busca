@@ -4,19 +4,26 @@ import time
 import hashlib
 from pathlib import Path
 import psycopg
+from dotenv import load_dotenv
 
-# Suporte a execução tanto via 'python src/ingest.py' quanto 'python -m src.ingest'
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+load_dotenv()
+
+# Parâmetros e variáveis de ambiente
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_EMBEDDING_MODEL = os.getenv("GOOGLE_EMBEDDING_MODEL", "models/gemini-embedding-2")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/rag")
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
+PG_VECTOR_COLLECTION_NAME = os.getenv("PG_VECTOR_COLLECTION_NAME", "documentos_fullcycle")
+PDF_PATH = os.getenv("PDF_PATH", "./document.pdf")
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_postgres import PGVector
-
-try:
-    from src.config import settings
-except ImportError:
-    from config import settings
 
 
 def calculate_file_hash(file_path: Path) -> str:
@@ -31,7 +38,7 @@ def calculate_file_hash(file_path: Path) -> str:
 def count_existing_chunks(file_hash: str) -> int:
     """Consulta o banco de dados para verificar se o documento já foi ingerido."""
     try:
-        conn_str = settings.normalized_database_url.replace("postgresql+psycopg://", "postgresql://")
+        conn_str = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
         with psycopg.connect(conn_str) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -41,19 +48,18 @@ def count_existing_chunks(file_hash: str) -> int:
                     JOIN langchain_pg_collection c ON e.collection_id = c.uuid
                     WHERE c.name = %s AND e.cmetadata->>'doc_hash' = %s;
                     """,
-                    (settings.PG_VECTOR_COLLECTION_NAME, file_hash),
+                    (PG_VECTOR_COLLECTION_NAME, file_hash),
                 )
                 res = cur.fetchone()
                 return res[0] if res else 0
     except Exception:
-        # Se as tabelas ainda não existirem (primeira execução), retorna 0
         return 0
 
 
 def delete_existing_chunks():
     """Limpa os registros da collection atual para re-ingestão limpa."""
     try:
-        conn_str = settings.normalized_database_url.replace("postgresql+psycopg://", "postgresql://")
+        conn_str = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
         with psycopg.connect(conn_str) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -62,7 +68,7 @@ def delete_existing_chunks():
                     USING langchain_pg_collection c
                     WHERE e.collection_id = c.uuid AND c.name = %s;
                     """,
-                    (settings.PG_VECTOR_COLLECTION_NAME,),
+                    (PG_VECTOR_COLLECTION_NAME,),
                 )
     except Exception:
         pass
@@ -75,9 +81,9 @@ def ingest_pdf(force_reset: bool = False):
     - Verificação de documento pré-existente (não consome tokens de API se já foi ingerido)
     - IDs determinísticos que garantem que nunca haverá duplicações no PostgreSQL
     """
-    pdf_file = Path(settings.PDF_PATH)
+    pdf_file = Path(PDF_PATH)
     if not pdf_file.exists():
-        raise FileNotFoundError(f"Arquivo PDF não encontrado no caminho: {settings.PDF_PATH}")
+        raise FileNotFoundError(f"Arquivo PDF não encontrado no caminho: {PDF_PATH}")
 
     file_hash = calculate_file_hash(pdf_file)
     print(f"1. Carregando documento: {pdf_file.name} (SHA-256: {file_hash[:12]}...)...")
@@ -98,10 +104,10 @@ def ingest_pdf(force_reset: bool = False):
     documents = loader.load()
     print(f"   Páginas carregadas: {len(documents)}")
 
-    print(f"2. Dividindo o texto em chunks (chunk_size={settings.CHUNK_SIZE}, chunk_overlap={settings.CHUNK_OVERLAP})...")
+    print(f"2. Dividindo o texto em chunks (chunk_size={CHUNK_SIZE}, chunk_overlap={CHUNK_OVERLAP})...")
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.CHUNK_SIZE,
-        chunk_overlap=settings.CHUNK_OVERLAP,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
         separators=["\n\n", "\n", " ", ""],
     )
     chunks = splitter.split_documents(documents)
@@ -120,17 +126,17 @@ def ingest_pdf(force_reset: bool = False):
         chunk_id = f"{file_hash[:10]}_p{page_num:03d}_c{idx:04d}"
         chunk_ids.append(chunk_id)
 
-    print(f"3. Inicializando embeddings com {settings.GOOGLE_EMBEDDING_MODEL}...")
+    print(f"3. Inicializando embeddings com {GOOGLE_EMBEDDING_MODEL}...")
     embeddings = GoogleGenerativeAIEmbeddings(
-        model=settings.GOOGLE_EMBEDDING_MODEL,
-        google_api_key=settings.GOOGLE_API_KEY,
+        model=GOOGLE_EMBEDDING_MODEL,
+        google_api_key=GOOGLE_API_KEY,
     )
 
-    print(f"4. Conectando ao PostgreSQL (collection: {settings.PG_VECTOR_COLLECTION_NAME})...")
+    print(f"4. Conectando ao PostgreSQL (collection: {PG_VECTOR_COLLECTION_NAME})...")
     vector_store = PGVector(
         embeddings=embeddings,
-        collection_name=settings.PG_VECTOR_COLLECTION_NAME,
-        connection=settings.normalized_database_url,
+        collection_name=PG_VECTOR_COLLECTION_NAME,
+        connection=DATABASE_URL,
         use_jsonb=True,
     )
 
