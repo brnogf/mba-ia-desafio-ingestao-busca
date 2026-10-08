@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Generator, Tuple, List, Optional, Union, Any
+from typing import Tuple, List, Optional, Union, Any
 
 # Suporte a execução de diferentes pontos de entrada
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,7 +46,7 @@ RESPONDA A "PERGUNTA DO USUÁRIO"
 
 FALLBACK_RESPONSE = "Não tenho informações necessárias para responder sua pergunta."
 
-# Singletons em memória para evitar recriação de conexões e handshake TLS a cada pergunta
+# Singletons em memória para evitar recriação de conexões a cada pergunta
 _CACHED_VECTOR_STORE: Optional[PGVector] = None
 _CACHED_LLM: Optional[ChatGoogleGenerativeAI] = None
 
@@ -69,14 +69,14 @@ def get_vector_store() -> PGVector:
 
 
 def get_llm() -> ChatGoogleGenerativeAI:
-    """Inicializa uma única vez a LLM usando transporte REST otimizado para Windows."""
+    """Inicializa uma única vez a LLM com temperatura zero."""
     global _CACHED_LLM
     if _CACHED_LLM is None:
         _CACHED_LLM = ChatGoogleGenerativeAI(
             model=settings.GOOGLE_CHAT_MODEL,
             google_api_key=settings.GOOGLE_API_KEY,
             temperature=0.0,
-            transport="rest",  # Reduz a latência de handshake TLS no Windows
+            transport="rest",
         )
     return _CACHED_LLM
 
@@ -100,23 +100,20 @@ def search_context_and_pages(query: str, vector_store: PGVector) -> Tuple[str, L
     return contexto, paginas, melhor_score
 
 
-def search_prompt_stream(query: str) -> Tuple[Generator[str, None, None], List[int]]:
+def ask_and_get_pages(query: str) -> Tuple[str, List[int]]:
     """
-    Função de streaming de alta performance:
-    Retorna (gerador_de_tokens, lista_de_paginas) em UMA ÚNICA consulta ao banco.
+    Executa a busca RAG completa de forma robusta e estável.
+    Retorna a resposta da LLM e a lista de páginas de referência.
     """
     vector_store = get_vector_store()
     llm = get_llm()
     prompt = PromptTemplate.from_template(PROMPT_TEMPLATE)
 
-    contexto, paginas, _melhor_score = search_context_and_pages(query, vector_store)
-    prompt_value = prompt.format(contexto=contexto, pergunta=query)
-    
-    def token_generator():
-        for chunk in llm.stream(prompt_value):
-            yield chunk.content
-
-    return token_generator(), paginas
+    contexto, paginas, _score = search_context_and_pages(query, vector_store)
+    chain = prompt | llm
+    response = chain.invoke({"contexto": contexto, "pergunta": query})
+    conteudo = response.content if hasattr(response, "content") else str(response)
+    return conteudo.strip(), paginas
 
 
 def search_prompt(question: Optional[str] = None) -> Union[RunnableLambda, str, Any]:

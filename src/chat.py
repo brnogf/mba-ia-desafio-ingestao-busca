@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from search import (
     search_prompt,
-    search_prompt_stream,
+    ask_and_get_pages,
     get_vector_store,
     get_llm,
 )
@@ -66,7 +66,7 @@ def show_system_info():
 
 
 def main():
-    # Pré-aquece conexões em background na inicialização para acelerar a 1ª pergunta
+    # Pré-aquece conexões em background na inicialização
     try:
         get_vector_store()
         get_llm()
@@ -102,43 +102,22 @@ def main():
                 print("\nDigite qualquer pergunta sobre o documento fornecido ou 'sair' para sair.\n")
                 continue
 
-            # Feedback visual instantâneo durante a busca e o tempo até o primeiro token
-            first_token = ""
-            tokens_stream = None
+            # Execução com indicador de status
+            resposta = ""
             paginas = []
 
             if USE_RICH:
                 with console.status("[cyan]Pesquisando no PostgreSQL e consultando IA...[/cyan]", spinner="dots"):
-                    tokens_stream, paginas = search_prompt_stream(pergunta)
-                    try:
-                        first_token = next(tokens_stream)
-                    except StopIteration:
-                        first_token = ""
-
-                console.print("[bold green]RESPOSTA:[/bold green] ", end="")
+                    resposta, paginas = ask_and_get_pages(pergunta)
+                console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}")
             else:
                 print("[Buscando no banco e consultando IA...]\r", end="", flush=True)
-                tokens_stream, paginas = search_prompt_stream(pergunta)
-                try:
-                    first_token = next(tokens_stream)
-                except StopIteration:
-                    first_token = ""
-                print(" " * 50 + "\r", end="", flush=True)  # Limpa mensagem de busca
-                print("RESPOSTA: ", end="", flush=True)
-
-            # Imprime o primeiro token e continua com o streaming em tempo real
-            resposta_completa = first_token
-            print(first_token, end="", flush=True)
-
-            if tokens_stream:
-                for token in tokens_stream:
-                    print(token, end="", flush=True)
-                    resposta_completa += token
-
-            print()  # Quebra de linha ao final da resposta
+                resposta, paginas = ask_and_get_pages(pergunta)
+                print(" " * 50 + "\r", end="", flush=True)
+                print(f"RESPOSTA: {resposta}")
 
             # Citação de fontes (páginas consultadas no PDF)
-            if "Não tenho informações necessárias" not in resposta_completa and paginas:
+            if "Não tenho informações necessárias" not in resposta and paginas:
                 paginas_str = ", ".join(str(p) for p in paginas)
                 if USE_RICH:
                     console.print(f"[dim]Fontes consultadas: {settings.PDF_PATH} (Paginas: {paginas_str})[/dim]\n")
