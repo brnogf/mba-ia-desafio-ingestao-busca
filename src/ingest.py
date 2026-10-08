@@ -144,11 +144,12 @@ def ingest_pdf(force_reset: bool = False):
     )
 
     print("5. Armazenando vetores no banco de dados...")
-    # ESTRATÉGIA PARA CONTORNAR RATE LIMIT:
-    # O limite gratuito do Gemini é rígido por Requisições Por Minuto (RPM).
-    # Aumentando o batch_size de 10 para 100, enviamos todos os 67 chunks 
-    # do desafio em UMA ÚNICA requisição para a API, driblando o bloqueio de RPM.
-    batch_size = 100
+    # ESTRATÉGIA DEFINITIVA DE RATE LIMIT (FREE TIER):
+    # A API do Google contabiliza CADA chunk dentro de um batch como 1 requisição no RPM
+    # e soma todos os tokens no TPM. O painel do Google tem delay de ~15min para mostrar isso.
+    # Com batch_size=5 e sleep de 20s, enviamos exatamente 15 chunks por minuto (15 RPM),
+    # ficando matematicamente abaixo do limite mais severo da API gratuita.
+    batch_size = 5
     total_batches = (len(chunks) + batch_size - 1) // batch_size
     
     for i in range(0, len(chunks), batch_size):
@@ -157,21 +158,20 @@ def ingest_pdf(force_reset: bool = False):
         batch_num = (i // batch_size) + 1
         print(f"   Processando lote {batch_num}/{total_batches} ({len(batch_chunks)} chunks)...")
 
-        for attempt in range(5):
+        for attempt in range(3):
             try:
                 vector_store.add_documents(batch_chunks, ids=batch_ids)
                 break
             except Exception as e:
-                if "429" in str(e) and attempt < 4:
-                    # Se mesmo enviando em lotes maiores a cota da conta estiver no limite,
-                    # o backoff exponencial espera mais tempo (15s, 30s, 45s...) para resetar o minuto
-                    wait_time = (attempt + 1) * 15
-                    print(f"   Rate limit atingido (429). Aguardando {wait_time}s para resetar cota...")
+                if "429" in str(e) and attempt < 2:
+                    wait_time = (attempt + 1) * 30
+                    print(f"   Rate limit atingido (429). Aguardando {wait_time}s para o Google resetar a cota...")
                     time.sleep(wait_time)
                 else:
                     raise e
-        # Sleep generoso entre requisições grandes para esfriar a API
-        time.sleep(5)
+                    
+        # Pausa cirúrgica para esfriar os contadores de RPM e TPM do Google
+        time.sleep(20)
 
     print("Ingestão concluída com sucesso no PostgreSQL + pgVector!")
 
