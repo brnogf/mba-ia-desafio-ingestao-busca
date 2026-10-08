@@ -107,71 +107,97 @@ def show_system_info():
 
     if USE_RICH:
         table = Table(
-            title="[bold cyan]Diagnóstico do Sistema & Configuração RAG[/bold cyan]",
+            title="[bold cyan]Diagnóstico Técnico & Parâmetros do Sistema (RAG)[/bold cyan]",
             box=box.ROUNDED,
             header_style="bold cyan",
             border_style="dim cyan",
+            show_header=True,
+            padding=(0, 2),
         )
-        table.add_column("Componente / Parâmetro", style="bold white", width=28)
-        table.add_column("Configuração / Status", style="green")
+        table.add_column("Especificação", style="bold white", width=28)
+        table.add_column("Valor / Configuração Ativa", style="green")
 
-        table.add_row("Documento Base", f"{settings.PDF_PATH} (34 páginas)")
-        table.add_row("Banco de Dados", "PostgreSQL 17 + pgvector (Docker)")
-        table.add_row("Coleção pgvector", f"{settings.PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks)")
-        table.add_row("Modelo LLM", f"{settings.GOOGLE_CHAT_MODEL} (temp: 0.0)")
-        table.add_row("Modelo de Embeddings", f"{settings.GOOGLE_EMBEDDING_MODEL}")
-        table.add_row("Recuperação Semântica", f"Top-{settings.TOP_K} chunks mais similares")
-        table.add_row("Chunking (Ingestão)", f"{settings.CHUNK_SIZE} chars (overlap: {settings.CHUNK_OVERLAP})")
-        table.add_row("Estratégia de Ingestão", "Idempotente com hash SHA-256")
-        table.add_row("Otimização de Driver", "Pool de Conexões Singleton + REST")
+        table.add_row("[yellow]INFRAESTRUTURA[/yellow]", "")
+        table.add_row("  Banco de Dados", "PostgreSQL 17 + pgvector (localhost:5432/rag)")
+        table.add_row("  Coleção no pgvector", f"{settings.PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks armazenados)")
+        table.add_row("  Driver / Conexão", "psycopg 3 (Pool Singleton ativo)")
+        table.add_section()
+
+        table.add_row("[yellow]INGESTÃO DE DADOS[/yellow]", "")
+        table.add_row("  Documento Fonte", f"{settings.PDF_PATH} (34 páginas, ~175 KB)")
+        table.add_row("  Divisão de Texto (Split)", f"{settings.CHUNK_SIZE} caracteres por chunk (overlap: {settings.CHUNK_OVERLAP})")
+        table.add_row("  Estratégia de Ingestão", "Idempotente (SHA-256 verificado)")
+        table.add_section()
+
+        table.add_row("[yellow]INTELIGÊNCIA ARTIFICIAL[/yellow]", "")
+        table.add_row("  Modelo de Embeddings", f"{settings.GOOGLE_EMBEDDING_MODEL} (768 dimensões)")
+        table.add_row("  Modelo LLM (Geração)", f"{settings.GOOGLE_CHAT_MODEL} (temperatura: 0.0)")
+        table.add_row("  Recuperação Semântica", f"Top-{settings.TOP_K} chunks mais relevantes (k={settings.TOP_K})")
+        table.add_row("  Transporte / Latência", "REST API direta (~1.2s - 2.0s por resposta)")
 
         console.print()
         console.print(table)
         console.print()
         return
 
-    print("\n--- Informações do Sistema ---")
-    print(f"Documento Base: {settings.PDF_PATH}")
-    print(f"Coleção pgVector: {settings.PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks)")
-    print(f"Modelo LLM: {settings.GOOGLE_CHAT_MODEL}")
-    print(f"Modelo Embeddings: {settings.GOOGLE_EMBEDDING_MODEL}")
-    print(f"Chunks recuperados (k): {settings.TOP_K}")
-    print(f"Chunking: {settings.CHUNK_SIZE} chars / overlap {settings.CHUNK_OVERLAP}")
-    print("-------------------------------\n")
+    print("\n--- Diagnóstico Técnico (RAG) ---")
+    print(f"Banco de Dados: PostgreSQL 17 + pgvector (localhost:5432/rag)")
+    print(f"Coleção pgvector: {settings.PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks)")
+    print(f"Documento Fonte: {settings.PDF_PATH} (34 páginas)")
+    print(f"Segmentação: {settings.CHUNK_SIZE} chars / overlap {settings.CHUNK_OVERLAP}")
+    print(f"Embeddings: {settings.GOOGLE_EMBEDDING_MODEL}")
+    print(f"Modelo LLM: {settings.GOOGLE_CHAT_MODEL} (temp: 0.0)")
+    print(f"Busca Semântica: Top-{settings.TOP_K} chunks")
+    print("---------------------------------\n")
 
 
 def show_help():
-    """Exibe guia rápido com comandos e sugestões de perguntas baseadas no PDF."""
+    """Exibe guia rápido com comandos, regras de RAG e exemplos de perguntas."""
     if USE_RICH:
         table = Table(
-            title="[bold cyan]Central de Ajuda & Exemplos de Uso[/bold cyan]",
+            title="[bold cyan]Central de Ajuda • Comandos & Guia de Perguntas[/bold cyan]",
             box=box.ROUNDED,
             header_style="bold cyan",
             border_style="dim cyan",
+            show_header=True,
+            padding=(0, 2),
         )
-        table.add_column("Tipo", style="bold yellow", width=14)
-        table.add_column("Exemplo / Descrição", style="white")
+        table.add_column("Item", style="bold white", width=22)
+        table.add_column("Orientação / Exemplo Prático", style="white")
 
-        table.add_row("Comando", "[cyan]/info[/cyan]   - Exibe detalhes técnicos do banco e modelos")
-        table.add_row("Comando", "[cyan]/limpar[/cyan] - Limpa a tela do terminal e reapresenta o banner")
-        table.add_row("Comando", "[cyan]/ajuda[/cyan]  - Exibe esta mensagem de ajuda")
-        table.add_row("Comando", "[cyan]/sair[/cyan]   - Encerra a aplicação")
-        table.add_row("Pergunta (PDF)", "Qual o faturamento da primeira empresa listada no documento?")
-        table.add_row("Pergunta (PDF)", "Quais são as principais empresas mencionadas no documento?")
-        table.add_row("Pergunta (PDF)", "Qual o contexto geral do documento?")
-        table.add_row("Fora de Escopo", "Quantos clientes temos em 2024? [dim](Aciona fallback seguro)[/dim]")
+        table.add_row("[yellow]COMANDOS DO CLI[/yellow]", "")
+        table.add_row("  /info", "Exibe diagnóstico técnico da infraestrutura e modelos")
+        table.add_row("  /limpar", "Limpa o terminal e restaura a visualização inicial")
+        table.add_row("  /ajuda", "Exibe esta referência de comandos e boas práticas")
+        table.add_row("  /sair", "Encerra o assistente de forma limpa")
+        table.add_section()
+
+        table.add_row("[yellow]DIRETRIZES DE RAG[/yellow]", "")
+        table.add_row("  Dado Explícito", "Cite o nome exato da empresa pesquisada (ex: SuperTechIABrazil)")
+        table.add_row("  Busca Posicional", "Evite termos como primeira empresa (chunks são recuperados por similaridade)")
+        table.add_row("  Fallback Estrito", "Perguntas fora do contexto retornam mensagem padrão sem alucinações")
+        table.add_section()
+
+        table.add_row("[yellow]EXEMPLOS DE TESTE[/yellow]", "")
+        table.add_row("  Consulta no PDF", "[cyan]Qual o faturamento da Empresa SuperTechIABrazil?[/cyan] (Exemplo oficial)")
+        table.add_row("  Consulta no PDF", "[cyan]Qual o faturamento da empresa Alfa Agronegócio Indústria?[/cyan]")
+        table.add_row("  Metadado no PDF", "[cyan]Em que ano foi fundada a empresa Alfa Energia S.A.?[/cyan]")
+        table.add_row("  Fora de Escopo", "[dim]Quantos clientes temos em 2024?[/dim] [yellow](Testa o fallback)[/yellow]")
 
         console.print()
         console.print(table)
         console.print()
         return
 
-    print("\n--- Central de Ajuda ---")
+    print("\n--- Central de Ajuda & Diretrizes ---")
     print("Comandos: /info, /limpar, /ajuda, /sair")
-    print("Exemplos de perguntas:")
-    print(" - Qual o faturamento da primeira empresa listada no documento?")
-    print(" - Quantos clientes temos em 2024? (teste fora do contexto)")
-    print("------------------------\n")
+    print("Diretrizes de busca:")
+    print(" - Cite o nome exato da empresa (ex: SuperTechIABrazil)")
+    print(" - Evite buscas posicionais como 'primeira empresa'")
+    print("Exemplos:")
+    print(" - Qual o faturamento da Empresa SuperTechIABrazil?")
+    print(" - Quantos clientes temos em 2024? (teste de fallback)")
+    print("------------------------------------\n")
 
 
 def main():
