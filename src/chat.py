@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 import argparse
 from dotenv import load_dotenv
 
@@ -144,7 +143,6 @@ def show_system_info():
         table.add_row("  Modelo LLM (Geração)", f"{GOOGLE_CHAT_MODEL} (temperatura: 0.0)")
         table.add_row("  Recuperação Semântica", f"Top-{TOP_K} chunks mais relevantes (k={TOP_K})")
         table.add_row("  Protocolo de Transporte", "REST API (otimizado para ambientes Windows)")
-        table.add_row("  Medição de Latência", "Dinâmica em tempo real (registrada por consulta)")
 
         console.print()
         console.print(table)
