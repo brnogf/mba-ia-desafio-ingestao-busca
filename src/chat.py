@@ -133,7 +133,8 @@ def show_system_info():
         table.add_row("  Modelo de Embeddings", f"{settings.GOOGLE_EMBEDDING_MODEL} (768 dimensões)")
         table.add_row("  Modelo LLM (Geração)", f"{settings.GOOGLE_CHAT_MODEL} (temperatura: 0.0)")
         table.add_row("  Recuperação Semântica", f"Top-{settings.TOP_K} chunks mais relevantes (k={settings.TOP_K})")
-        table.add_row("  Transporte / Latência", "REST API direta (~1.2s - 2.0s por resposta)")
+        table.add_row("  Protocolo de Transporte", "REST API (otimizado para ambientes Windows)")
+        table.add_row("  Medição de Latência", "Dinâmica em tempo real (registrada por consulta)")
 
         console.print()
         console.print(table)
