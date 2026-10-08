@@ -36,10 +36,10 @@ Crie seu arquivo `.env` a partir do modelo:
 cp .env.example .env
 ```
 
-#### Opção A: Utilizando OpenAI (Padrão de Mercado)
+#### Opção A: Utilizando OpenAI 
 Basta preencher sua chave da OpenAI no `.env`:
 ```ini
-OPENAI_API_KEY=sk-proj-...sua-chave-aqui...
+OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL='text-embedding-3-small'
 OPENAI_CHAT_MODEL='gpt-4o-mini'
 ```
@@ -47,7 +47,7 @@ OPENAI_CHAT_MODEL='gpt-4o-mini'
 #### Opção B: Utilizando Google Gemini
 Basta preencher sua chave do Google Gemini no `.env`:
 ```ini
-GOOGLE_API_KEY=AIzaSy...sua-chave-aqui...
+GOOGLE_API_KEY=
 GOOGLE_EMBEDDING_MODEL='models/gemini-embedding-001'
 GOOGLE_CHAT_MODEL='gemini-flash-lite-latest'
 ```
@@ -62,7 +62,7 @@ AI_PROVIDER=gemini   # Para forçar o uso do Google Gemini
 *(Se `AI_PROVIDER` não for definido e ambas as chaves estiverem presentes, o sistema prioriza OpenAI por padrão).*
 
 ### Como conferir qual chave e provedor estão ativos:
-1. **Ao iniciar o assistente (`python src/chat.py`):** O banner inicial exibe o **Provedor Ativo**, o modelo LLM, o modelo de Embeddings e a **Chave Mascarada** (ex: `sk-p...1234` ou `AIza...9876`).
+1. **Ao iniciar o assistente (`python src/chat.py`):** O banner inicial exibe o **Provedor Ativo**, o modelo LLM, o modelo de Embeddings e a **Chave Mascarada**.
 2. **Dentro do chat interativo:** Digite `/info` para abrir o painel completo de auditoria do sistema, detalhando provedor ativo, dimensões e infraestrutura.
 
 ---
