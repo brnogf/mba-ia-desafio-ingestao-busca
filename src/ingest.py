@@ -3,6 +3,7 @@ import sys
 import time
 import hashlib
 from pathlib import Path
+import psycopg
 
 # Suporte a execução tanto via 'python src/ingest.py' quanto 'python -m src.ingest'
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,12 +28,52 @@ def calculate_file_hash(file_path: Path) -> str:
     return hasher.hexdigest()
 
 
+def count_existing_chunks(file_hash: str) -> int:
+    """Consulta o banco de dados para verificar se o documento já foi ingerido."""
+    try:
+        conn_str = settings.normalized_database_url.replace("postgresql+psycopg://", "postgresql://")
+        with psycopg.connect(conn_str) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT count(*) 
+                    FROM langchain_pg_embedding e
+                    JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                    WHERE c.name = %s AND e.cmetadata->>'doc_hash' = %s;
+                    """,
+                    (settings.PG_VECTOR_COLLECTION_NAME, file_hash),
+                )
+                res = cur.fetchone()
+                return res[0] if res else 0
+    except Exception:
+        # Se as tabelas ainda não existirem (primeira execução), retorna 0
+        return 0
+
+
+def delete_existing_chunks():
+    """Limpa os registros da collection atual para re-ingestão limpa."""
+    try:
+        conn_str = settings.normalized_database_url.replace("postgresql+psycopg://", "postgresql://")
+        with psycopg.connect(conn_str) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM langchain_pg_embedding e
+                    USING langchain_pg_collection c
+                    WHERE e.collection_id = c.uuid AND c.name = %s;
+                    """,
+                    (settings.PG_VECTOR_COLLECTION_NAME,),
+                )
+    except Exception:
+        pass
+
+
 def ingest_pdf(force_reset: bool = False):
     """
-    Executa a ingestão do documento PDF de forma idempotente:
+    Executa a ingestão do documento PDF de forma 100% idempotente:
     - Fatiamento nos padrões Full Cycle (chunk_size=1000, chunk_overlap=150)
-    - Gera IDs determinísticos para evitar duplicação no PostgreSQL
-    - Ingestão em lotes com backoff exponencial para respeitar cotas de API
+    - Verificação de documento pré-existente (não consome tokens de API se já foi ingerido)
+    - IDs determinísticos que garantem que nunca haverá duplicações no PostgreSQL
     """
     pdf_file = Path(settings.PDF_PATH)
     if not pdf_file.exists():
@@ -40,6 +81,18 @@ def ingest_pdf(force_reset: bool = False):
 
     file_hash = calculate_file_hash(pdf_file)
     print(f"1. Carregando documento: {pdf_file.name} (SHA-256: {file_hash[:12]}...)...")
+
+    # Verificação de idempotência prévia:
+    existing_count = count_existing_chunks(file_hash)
+    if existing_count > 0 and not force_reset:
+        print(f"\n[IDEMPOTÊNCIA ATIVA] O documento '{pdf_file.name}' já está gravado no banco ({existing_count} chunks encontrados).")
+        print("Nenhum embedding novo precisa ser gerado (Economia de 100% da cota da sua API).")
+        print("Para forçar a reinserção do zero, use: python src/ingest.py --force\n")
+        return
+
+    if force_reset:
+        print("   Limpando dados anteriores para re-ingestão forçada...")
+        delete_existing_chunks()
 
     loader = PyPDFLoader(str(pdf_file))
     documents = loader.load()
@@ -63,7 +116,7 @@ def ingest_pdf(force_reset: bool = False):
         chunk.metadata["doc_hash"] = file_hash
         chunk.metadata["chunk_index"] = idx
         
-        # ID determinístico: garante que executar a ingestão 10 vezes não duplica registros
+        # ID determinístico único por hash e posição do chunk
         chunk_id = f"{file_hash[:10]}_p{page_num:03d}_c{idx:04d}"
         chunk_ids.append(chunk_id)
 
@@ -81,21 +134,7 @@ def ingest_pdf(force_reset: bool = False):
         use_jsonb=True,
     )
 
-    if force_reset:
-        print("   Limpando collection existente para recarga forçada...")
-        try:
-            vector_store.delete_collection()
-            # Reinicializa após deletar
-            vector_store = PGVector(
-                embeddings=embeddings,
-                collection_name=settings.PG_VECTOR_COLLECTION_NAME,
-                connection=settings.normalized_database_url,
-                use_jsonb=True,
-            )
-        except Exception as e:
-            print(f"   Aviso ao limpar collection: {e}")
-
-    print("5. Armazenando vetores no banco de dados (com controle de idempotência)...")
+    print("5. Armazenando vetores no banco de dados...")
     batch_size = 10
     total_batches = (len(chunks) + batch_size - 1) // batch_size
     
@@ -122,4 +161,5 @@ def ingest_pdf(force_reset: bool = False):
 
 
 if __name__ == "__main__":
-    ingest_pdf()
+    force = "--force" in sys.argv
+    ingest_pdf(force_reset=force)
