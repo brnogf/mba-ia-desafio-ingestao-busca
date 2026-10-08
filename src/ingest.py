@@ -144,7 +144,11 @@ def ingest_pdf(force_reset: bool = False):
     )
 
     print("5. Armazenando vetores no banco de dados...")
-    batch_size = 10
+    # ESTRATÉGIA PARA CONTORNAR RATE LIMIT:
+    # O limite gratuito do Gemini é rígido por Requisições Por Minuto (RPM).
+    # Aumentando o batch_size de 10 para 100, enviamos todos os 67 chunks 
+    # do desafio em UMA ÚNICA requisição para a API, driblando o bloqueio de RPM.
+    batch_size = 100
     total_batches = (len(chunks) + batch_size - 1) // batch_size
     
     for i in range(0, len(chunks), batch_size):
@@ -159,12 +163,15 @@ def ingest_pdf(force_reset: bool = False):
                 break
             except Exception as e:
                 if "429" in str(e) and attempt < 4:
-                    wait_time = (attempt + 1) * 3
-                    print(f"   Rate limit atingido. Aguardando {wait_time}s...")
+                    # Se mesmo enviando em lotes maiores a cota da conta estiver no limite,
+                    # o backoff exponencial espera mais tempo (15s, 30s, 45s...) para resetar o minuto
+                    wait_time = (attempt + 1) * 15
+                    print(f"   Rate limit atingido (429). Aguardando {wait_time}s para resetar cota...")
                     time.sleep(wait_time)
                 else:
                     raise e
-        time.sleep(1)
+        # Sleep generoso entre requisições grandes para esfriar a API
+        time.sleep(5)
 
     print("Ingestão concluída com sucesso no PostgreSQL + pgVector!")
 
