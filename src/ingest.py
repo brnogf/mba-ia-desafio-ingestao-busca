@@ -15,10 +15,10 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
-PG_VECTOR_COLLECTION_NAME = os.getenv("PG_VECTOR_COLLECTION_NAME", "documentos_fullcycle")
-PDF_PATH = os.getenv("PDF_PATH", "./document.pdf")
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
+PG_VECTOR_COLLECTION_NAME = os.getenv("PG_VECTOR_COLLECTION_NAME") or "documentos_fullcycle"
+PDF_PATH = os.getenv("PDF_PATH") or "./document.pdf"
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE") or "1000")
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP") or "150")
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -82,7 +82,7 @@ def ingest_pdf(force_reset: bool = False):
     - IDs determinísticos que garantem que nunca haverá duplicações no PostgreSQL
     """
     pdf_file = Path(PDF_PATH)
-    if not pdf_file.exists():
+    if not pdf_file.is_file():
         raise FileNotFoundError(f"Arquivo PDF não encontrado no caminho: {PDF_PATH}")
 
     file_hash = calculate_file_hash(pdf_file)
