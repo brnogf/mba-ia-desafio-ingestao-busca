@@ -105,6 +105,11 @@ Caso encontre problemas durante o setup ou uso, consulte os cenários abaixo:
     python src/ingest.py
     ```
 
+- **Erro: "failed to connect to the docker API at npipe:////./pipe..."**
+  - *Cenário:* Ao rodar `docker compose up -d`, o terminal exibe esse erro.
+  - *Causa:* O Docker Daemon (o "motor" do Docker) não está rodando no seu sistema operativo (muito comum no Windows via Docker Desktop).
+  - *Solução:* Abra o aplicativo **Docker Desktop** no seu computador e aguarde o status mudar para "Engine running" (ícone verde no canto inferior esquerdo). Depois, tente rodar o comando novamente no terminal.
+
 - **Falha de Conexão com Banco / Porta 5432 Ocupada:**
   - *Cenário:* O contêiner Docker do PostgreSQL não sobe ou a aplicação acusa falha de TCP.
   - *Causa:* Um serviço local (geralmente uma instalação nativa do Postgres) já está escutando na porta 5432.
