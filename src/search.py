@@ -46,28 +46,39 @@ RESPONDA A "PERGUNTA DO USUÁRIO"
 
 FALLBACK_RESPONSE = "Não tenho informações necessárias para responder sua pergunta."
 
+# Singletons em memória para evitar recriação de conexões e handshake TLS a cada pergunta
+_CACHED_VECTOR_STORE: Optional[PGVector] = None
+_CACHED_LLM: Optional[ChatGoogleGenerativeAI] = None
+
 
 def get_vector_store() -> PGVector:
-    """Inicializa e retorna o Vector Store conectado ao PostgreSQL."""
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model=settings.GOOGLE_EMBEDDING_MODEL,
-        google_api_key=settings.GOOGLE_API_KEY,
-    )
-    return PGVector(
-        embeddings=embeddings,
-        collection_name=settings.PG_VECTOR_COLLECTION_NAME,
-        connection=settings.normalized_database_url,
-        use_jsonb=True,
-    )
+    """Inicializa uma única vez e reutiliza o pool de conexões do PostgreSQL."""
+    global _CACHED_VECTOR_STORE
+    if _CACHED_VECTOR_STORE is None:
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model=settings.GOOGLE_EMBEDDING_MODEL,
+            google_api_key=settings.GOOGLE_API_KEY,
+        )
+        _CACHED_VECTOR_STORE = PGVector(
+            embeddings=embeddings,
+            collection_name=settings.PG_VECTOR_COLLECTION_NAME,
+            connection=settings.normalized_database_url,
+            use_jsonb=True,
+        )
+    return _CACHED_VECTOR_STORE
 
 
 def get_llm() -> ChatGoogleGenerativeAI:
-    """Inicializa a LLM determinística com temperatura zero."""
-    return ChatGoogleGenerativeAI(
-        model=settings.GOOGLE_CHAT_MODEL,
-        google_api_key=settings.GOOGLE_API_KEY,
-        temperature=0.0,
-    )
+    """Inicializa uma única vez a LLM usando transporte REST otimizado para Windows."""
+    global _CACHED_LLM
+    if _CACHED_LLM is None:
+        _CACHED_LLM = ChatGoogleGenerativeAI(
+            model=settings.GOOGLE_CHAT_MODEL,
+            google_api_key=settings.GOOGLE_API_KEY,
+            temperature=0.0,
+            transport="rest",  # Reduz a latência de handshake TLS no Windows
+        )
+    return _CACHED_LLM
 
 
 def search_context_and_pages(query: str, vector_store: PGVector) -> Tuple[str, List[int], float]:
@@ -89,22 +100,23 @@ def search_context_and_pages(query: str, vector_store: PGVector) -> Tuple[str, L
     return contexto, paginas, melhor_score
 
 
-def search_prompt_stream(query: str) -> Generator[str, None, Tuple[str, List[int]]]:
+def search_prompt_stream(query: str) -> Tuple[Generator[str, None, None], List[int]]:
     """
-    Função de streaming de tokens para o MVP:
-    Gera cada token em tempo real e entrega as páginas consultadas no final.
+    Função de streaming de alta performance:
+    Retorna (gerador_de_tokens, lista_de_paginas) em UMA ÚNICA consulta ao banco.
     """
     vector_store = get_vector_store()
     llm = get_llm()
     prompt = PromptTemplate.from_template(PROMPT_TEMPLATE)
 
     contexto, paginas, _melhor_score = search_context_and_pages(query, vector_store)
-
     prompt_value = prompt.format(contexto=contexto, pergunta=query)
     
-    # Streaming de tokens em tempo real
-    for chunk in llm.stream(prompt_value):
-        yield chunk.content
+    def token_generator():
+        for chunk in llm.stream(prompt_value):
+            yield chunk.content
+
+    return token_generator(), paginas
 
 
 def search_prompt(question: Optional[str] = None) -> Union[RunnableLambda, str, Any]:

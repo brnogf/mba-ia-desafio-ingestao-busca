@@ -16,7 +16,7 @@ from search import (
     search_prompt,
     search_prompt_stream,
     get_vector_store,
-    search_context_and_pages,
+    get_llm,
 )
 
 try:
@@ -66,18 +66,19 @@ def show_system_info():
 
 
 def main():
-    chain = search_prompt()
+    # Pré-aquece conexões em background na inicialização para acelerar a 1ª pergunta
+    try:
+        get_vector_store()
+        get_llm()
+    except Exception:
+        pass
 
+    chain = search_prompt()
     if not chain:
         print("Não foi possível iniciar o chat. Verifique os erros de inicialização.")
         return
 
     print_banner()
-
-    try:
-        vector_store = get_vector_store()
-    except Exception:
-        vector_store = None
 
     while True:
         try:
@@ -101,33 +102,48 @@ def main():
                 print("\nDigite qualquer pergunta sobre o documento fornecido ou 'sair' para sair.\n")
                 continue
 
-            # Streaming de resposta em tempo real
+            # Feedback visual instantâneo durante a busca e o tempo até o primeiro token
+            first_token = ""
+            tokens_stream = None
+            paginas = []
+
             if USE_RICH:
+                with console.status("[cyan]Pesquisando no PostgreSQL e consultando IA...[/cyan]", spinner="dots"):
+                    tokens_stream, paginas = search_prompt_stream(pergunta)
+                    try:
+                        first_token = next(tokens_stream)
+                    except StopIteration:
+                        first_token = ""
+
                 console.print("[bold green]RESPOSTA:[/bold green] ", end="")
             else:
+                print("[Buscando no banco e consultando IA...]\r", end="", flush=True)
+                tokens_stream, paginas = search_prompt_stream(pergunta)
+                try:
+                    first_token = next(tokens_stream)
+                except StopIteration:
+                    first_token = ""
+                print(" " * 50 + "\r", end="", flush=True)  # Limpa mensagem de busca
                 print("RESPOSTA: ", end="", flush=True)
 
-            resposta_completa = ""
-            for token in search_prompt_stream(pergunta):
-                print(token, end="", flush=True)
-                resposta_completa += token
+            # Imprime o primeiro token e continua com o streaming em tempo real
+            resposta_completa = first_token
+            print(first_token, end="", flush=True)
 
-            print()  # Quebra de linha após o término do streaming
+            if tokens_stream:
+                for token in tokens_stream:
+                    print(token, end="", flush=True)
+                    resposta_completa += token
+
+            print()  # Quebra de linha ao final da resposta
 
             # Citação de fontes (páginas consultadas no PDF)
-            if vector_store:
-                try:
-                    _contexto, paginas, _score = search_context_and_pages(pergunta, vector_store)
-                    if "Não tenho informações necessárias" not in resposta_completa and paginas:
-                        paginas_str = ", ".join(str(p) for p in paginas)
-                        if USE_RICH:
-                            console.print(f"[dim]Fontes consultadas: {settings.PDF_PATH} (Paginas: {paginas_str})[/dim]\n")
-                        else:
-                            print(f"[Fontes consultadas: {settings.PDF_PATH} (Paginas: {paginas_str})]\n")
-                    else:
-                        print()
-                except Exception:
-                    print()
+            if "Não tenho informações necessárias" not in resposta_completa and paginas:
+                paginas_str = ", ".join(str(p) for p in paginas)
+                if USE_RICH:
+                    console.print(f"[dim]Fontes consultadas: {settings.PDF_PATH} (Paginas: {paginas_str})[/dim]\n")
+                else:
+                    print(f"[Fontes consultadas: {settings.PDF_PATH} (Paginas: {paginas_str})]\n")
             else:
                 print()
 
