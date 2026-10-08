@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """
     GOOGLE_API_KEY: str = Field(default="", description="Chave de API do Google Gemini")
     GOOGLE_EMBEDDING_MODEL: str = Field(default="models/gemini-embedding-2", description="Modelo de embeddings")
-    GOOGLE_CHAT_MODEL: str = Field(default="gemini-3.8-flash", description="Modelo LLM de geração")
+    GOOGLE_CHAT_MODEL: str = Field(default="gemini-flash-lite-latest", description="Modelo LLM de geração")
     
     DATABASE_URL: str = Field(
         default="postgresql+psycopg://postgres:postgres@localhost:5432/rag",
