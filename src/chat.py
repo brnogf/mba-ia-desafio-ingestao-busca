@@ -272,13 +272,13 @@ def main():
                 # Formato obrigatório para testes: PERGUNTA e RESPOSTA
                 console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}")
 
-                # Rodapé de auditoria e citação de páginas
+                # Rodapé informando a página exata da informação
                 if "Não tenho informações necessárias" not in resposta and paginas:
                     paginas_str = ", ".join(str(p) for p in paginas)
+                    label = "Página da informação:" if len(paginas) == 1 else "Páginas da informação:"
                     console.print(
-                        f"[dim cyan]Fontes consultadas:[/dim cyan] [cyan]{settings.PDF_PATH}[/cyan] "
-                        f"[dim]• Páginas:[/dim] [bold cyan]{paginas_str}[/bold cyan] "
-                        f"[dim]• Tempo:[/dim] [dim green]{elapsed:.2f}s[/dim green]\n"
+                        f"[dim cyan]{label}[/dim cyan] [bold cyan]{paginas_str}[/bold cyan] "
+                        f"[dim]({settings.PDF_PATH}) • Tempo:[/dim] [dim green]{elapsed:.2f}s[/dim green]\n"
                     )
                 else:
                     console.print(
@@ -294,7 +294,8 @@ def main():
                 print(f"RESPOSTA: {resposta}")
                 if "Não tenho informações necessárias" not in resposta and paginas:
                     paginas_str = ", ".join(str(p) for p in paginas)
-                    print(f"[Fontes consultadas: {settings.PDF_PATH} (Paginas: {paginas_str}) - {elapsed:.2f}s]\n")
+                    label = "Página da informação" if len(paginas) == 1 else "Páginas da informação"
+                    print(f"[{label}: {paginas_str} ({settings.PDF_PATH}) - {elapsed:.2f}s]\n")
                 else:
                     print(f"[Tempo: {elapsed:.2f}s]\n")
 

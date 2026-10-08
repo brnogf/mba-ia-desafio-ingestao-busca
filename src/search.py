@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 from typing import Tuple, List, Optional, Union, Any
 
 # Suporte a execução de diferentes pontos de entrada
@@ -100,20 +101,80 @@ def search_context_and_pages(query: str, vector_store: PGVector) -> Tuple[str, L
     return contexto, paginas, melhor_score
 
 
+def locate_exact_pages(query: str, answer: str, results: List[Tuple[Any, float]]) -> List[int]:
+    """
+    Identifica com precisão cirúrgica a página do documento onde a informação
+    que respondeu à pergunta realmente está localizada, em vez de listar todas
+    as páginas recuperadas pelo Top-K.
+    """
+    if not results or FALLBACK_RESPONSE in answer:
+        return []
+
+    # Extrai números, valores monetários e anos da resposta
+    numbers = re.findall(r"[\d\.,]+", answer)
+    sig_numbers = [n.strip(".,") for n in numbers if len(n.strip(".,")) >= 2]
+
+    # Extrai termos e entidades relevantes da pergunta e da resposta
+    tokens = re.findall(r"\b[A-Za-z0-9_Á-ú]+\b", query) + re.findall(r"\b[A-Za-z0-9_Á-ú]+\b", answer)
+    stopwords = {
+        "qual", "quais", "como", "onde", "quando", "quem", "quanto", "quantos",
+        "por", "para", "com", "sem", "que", "empresa", "documento", "resposta",
+        "pergunta", "não", "tenho", "informações", "necessárias", "responder",
+        "ano", "faturamento", "de", "do", "da", "dos", "das", "em", "no", "na",
+        "nos", "nas", "foi", "é", "são", "reais", "milhões", "milhao", "mil"
+    }
+    sig_words = [t for t in tokens if len(t) >= 3 and t.lower() not in stopwords]
+
+    scored_pages = []
+    for doc, distance in results:
+        page = doc.metadata.get("page", 0) + 1
+        content = doc.page_content.lower()
+        match_score = 0
+
+        # Correspondência de números/valores da resposta (peso altíssimo)
+        for num in sig_numbers:
+            if num in doc.page_content:
+                match_score += 15
+
+        # Correspondência de termos-chave e nomes de entidades
+        for word in sig_words:
+            if word.lower() in content:
+                match_score += 5
+
+        scored_pages.append((page, match_score, distance))
+
+    scored_pages.sort(key=lambda x: (-x[1], x[2]))
+
+    best_score = scored_pages[0][1]
+    if best_score > 0:
+        exact_pages = sorted(list({p for p, s, d in scored_pages if s == best_score}))
+        return exact_pages
+
+    # Fallback para o chunk de menor distância vetorial
+    return [scored_pages[0][0]]
+
+
 def ask_and_get_pages(query: str) -> Tuple[str, List[int]]:
     """
-    Executa a busca RAG completa de forma robusta e estável.
-    Retorna a resposta da LLM e a lista de páginas de referência.
+    Executa a busca RAG completa e retorna a resposta junto com a página exata
+    onde a informação foi localizada no documento.
     """
     vector_store = get_vector_store()
     llm = get_llm()
     prompt = PromptTemplate.from_template(PROMPT_TEMPLATE)
 
-    contexto, paginas, _score = search_context_and_pages(query, vector_store)
+    results = vector_store.similarity_search_with_score(query, k=settings.TOP_K)
+    if not results:
+        return FALLBACK_RESPONSE, []
+
+    contexto = "\n\n".join([doc.page_content for doc, _score in results])
     chain = prompt | llm
     response = chain.invoke({"contexto": contexto, "pergunta": query})
     conteudo = response.content if hasattr(response, "content") else str(response)
-    return conteudo.strip(), paginas
+    conteudo = conteudo.strip()
+
+    exact_pages = locate_exact_pages(query, conteudo, results)
+    return conteudo, exact_pages
 
 
 def search_prompt(question: Optional[str] = None) -> Union[RunnableLambda, str, Any]:
