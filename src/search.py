@@ -8,6 +8,9 @@ load_dotenv()
 
 # Parâmetros e variáveis de ambiente
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+if not GOOGLE_API_KEY:
+    raise ValueError("⚠️ ERRO: A variável GOOGLE_API_KEY não foi preenchida no arquivo .env!")
+
 GOOGLE_EMBEDDING_MODEL = os.getenv("GOOGLE_EMBEDDING_MODEL", "models/gemini-embedding-2")
 GOOGLE_CHAT_MODEL = os.getenv("GOOGLE_CHAT_MODEL", "gemini-flash-lite-latest")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/rag")
