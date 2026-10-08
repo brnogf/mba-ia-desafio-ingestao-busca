@@ -3,17 +3,38 @@ import sys
 import time
 import hashlib
 from pathlib import Path
+from typing import Optional
 import psycopg
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Parâmetros e variáveis de ambiente
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-if not GOOGLE_API_KEY:
-    raise ValueError("⚠️ ERRO: A variável GOOGLE_API_KEY não foi preenchida no arquivo .env!")
+# Configuração e Detecção de Provedor de IA (OpenAI vs. Google Gemini)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
+AI_PROVIDER = os.getenv("AI_PROVIDER", "").strip().lower()
 
+if not AI_PROVIDER:
+    if OPENAI_API_KEY and not GOOGLE_API_KEY:
+        AI_PROVIDER = "openai"
+    elif GOOGLE_API_KEY and not OPENAI_API_KEY:
+        AI_PROVIDER = "gemini"
+    elif OPENAI_API_KEY and GOOGLE_API_KEY:
+        AI_PROVIDER = "openai"
+    else:
+        AI_PROVIDER = "gemini"
+
+if AI_PROVIDER == "openai" and not OPENAI_API_KEY:
+    raise ValueError("⚠️ ERRO: Provedor OpenAI selecionado, mas OPENAI_API_KEY não foi configurada no .env!")
+elif AI_PROVIDER == "gemini" and not GOOGLE_API_KEY:
+    raise ValueError("⚠️ ERRO: Provedor Gemini selecionado, mas GOOGLE_API_KEY não foi configurada no .env!")
+
+# Modelos configurados
+OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL") or "text-embedding-3-small"
 GOOGLE_EMBEDDING_MODEL = os.getenv("GOOGLE_EMBEDDING_MODEL") or "models/gemini-embedding-001"
+ACTIVE_EMBEDDING_MODEL = OPENAI_EMBEDDING_MODEL if AI_PROVIDER == "openai" else GOOGLE_EMBEDDING_MODEL
+
+# Parâmetros de Banco de Dados e RAG
 DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql+psycopg://postgres:postgres@localhost:5432/rag"
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
@@ -25,8 +46,23 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP") or "150")
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_postgres import PGVector
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
+
+
+def get_embeddings():
+    """Instancia o modelo de embeddings de acordo com o provedor ativo."""
+    if AI_PROVIDER == "openai":
+        return OpenAIEmbeddings(
+            model=OPENAI_EMBEDDING_MODEL,
+            api_key=OPENAI_API_KEY,
+        )
+    else:
+        return GoogleGenerativeAIEmbeddings(
+            model=GOOGLE_EMBEDDING_MODEL,
+            google_api_key=GOOGLE_API_KEY,
+        )
 
 
 def calculate_file_hash(file_path: Path) -> str:
@@ -36,6 +72,28 @@ def calculate_file_hash(file_path: Path) -> str:
         while chunk := f.read(8192):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def get_stored_vector_dims() -> Optional[int]:
+    """Consulta o banco de dados para verificar a dimensão dos vetores já gravados."""
+    try:
+        conn_str = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
+        with psycopg.connect(conn_str) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT vector_dims(e.embedding)
+                    FROM langchain_pg_embedding e
+                    JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+                    WHERE c.name = %s
+                    LIMIT 1;
+                    """,
+                    (PG_VECTOR_COLLECTION_NAME,),
+                )
+                res = cur.fetchone()
+                return res[0] if res else None
+    except Exception:
+        return None
 
 
 def count_existing_chunks(file_hash: str) -> int:
@@ -81,8 +139,9 @@ def ingest_pdf(force_reset: bool = False):
     """
     Executa a ingestão do documento PDF de forma 100% idempotente:
     - Fatiamento nos padrões Full Cycle (chunk_size=1000, chunk_overlap=150)
-    - Verificação de documento pré-existente (não consome tokens de API se já foi ingerido)
-    - IDs determinísticos que garantem que nunca haverá duplicações no PostgreSQL
+    - Suporte dual transparente para OpenAI e Google Gemini
+    - Auto-detecção de incompatibilidade de dimensões vetoriais no PostgreSQL
+    - IDs determinísticos que garantem que nunca haverá duplicações
     """
     pdf_file = Path(PDF_PATH)
     if not pdf_file.is_file():
@@ -91,10 +150,28 @@ def ingest_pdf(force_reset: bool = False):
     file_hash = calculate_file_hash(pdf_file)
     print(f"1. Carregando documento: {pdf_file.name} (SHA-256: {file_hash[:12]}...)...")
 
-    # Verificação de idempotência prévia:
+    embeddings = get_embeddings()
+
+    # Verificação de compatibilidade de dimensão entre o banco e o modelo ativo
+    stored_dims = get_stored_vector_dims()
     existing_count = count_existing_chunks(file_hash)
+
+    if stored_dims is not None and existing_count > 0:
+        # Testa a dimensão do modelo atual gerando um embedding de teste
+        try:
+            current_model_dim = len(embeddings.embed_query("dim_check"))
+            if stored_dims != current_model_dim:
+                print(f"\n⚠️ [TROCA DE PROVEDOR DETECTADA]")
+                print(f"   Dimensão no banco: {stored_dims} | Novo modelo ({AI_PROVIDER}): {current_model_dim} dimensões.")
+                print("   Limpando vetores antigos incompatíveis para reindexação automática...")
+                force_reset = True
+        except Exception:
+            pass
+
+    # Verificação de idempotência prévia:
     if existing_count > 0 and not force_reset:
         print(f"\n[IDEMPOTÊNCIA ATIVA] O documento '{pdf_file.name}' já está gravado no banco ({existing_count} chunks encontrados).")
+        print(f"Provedor ativo: {AI_PROVIDER.upper()} | Modelo: {ACTIVE_EMBEDDING_MODEL}")
         print("Nenhum embedding novo precisa ser gerado (Economia de 100% da cota da sua API).")
         print("Para forçar a reinserção do zero, use: python src/ingest.py --force\n")
         return
@@ -129,11 +206,7 @@ def ingest_pdf(force_reset: bool = False):
         chunk_id = f"{file_hash[:10]}_p{page_num:03d}_c{idx:04d}"
         chunk_ids.append(chunk_id)
 
-    print(f"3. Inicializando embeddings com {GOOGLE_EMBEDDING_MODEL}...")
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model=GOOGLE_EMBEDDING_MODEL,
-        google_api_key=GOOGLE_API_KEY,
-    )
+    print(f"3. Inicializando embeddings [{AI_PROVIDER.upper()}] com {ACTIVE_EMBEDDING_MODEL}...")
 
     print(f"4. Conectando ao PostgreSQL (collection: {PG_VECTOR_COLLECTION_NAME})...")
     vector_store = PGVector(
@@ -144,12 +217,14 @@ def ingest_pdf(force_reset: bool = False):
     )
 
     print("5. Armazenando vetores no banco de dados...")
-    # ESTRATÉGIA DEFINITIVA DE RATE LIMIT (FREE TIER):
-    # A API do Google contabiliza CADA chunk dentro de um batch como 1 requisição no RPM
-    # e soma todos os tokens no TPM. O painel do Google tem delay de ~15min para mostrar isso.
-    # Com batch_size=5 e sleep de 20s, enviamos exatamente 15 chunks por minuto (15 RPM),
-    # ficando matematicamente abaixo do limite mais severo da API gratuita.
-    batch_size = 5
+    # Estratégia de batch adaptativa por provedor
+    if AI_PROVIDER == "gemini":
+        batch_size = 5
+        sleep_between_batches = 20
+    else:
+        batch_size = 20
+        sleep_between_batches = 1
+
     total_batches = (len(chunks) + batch_size - 1) // batch_size
     
     for i in range(0, len(chunks), batch_size):
@@ -165,13 +240,13 @@ def ingest_pdf(force_reset: bool = False):
             except Exception as e:
                 if "429" in str(e) and attempt < 2:
                     wait_time = (attempt + 1) * 30
-                    print(f"   Rate limit atingido (429). Aguardando {wait_time}s para o Google resetar a cota...")
+                    print(f"   Rate limit atingido (429). Aguardando {wait_time}s para reset de cota...")
                     time.sleep(wait_time)
                 else:
                     raise e
                     
-        # Pausa cirúrgica para esfriar os contadores de RPM e TPM do Google
-        time.sleep(20)
+        if i + batch_size < len(chunks):
+            time.sleep(sleep_between_batches)
 
     print("Ingestão concluída com sucesso no PostgreSQL + pgVector!")
 

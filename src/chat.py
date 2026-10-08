@@ -14,9 +14,6 @@ if sys.platform == "win32":
         pass
 
 # Parâmetros e variáveis de ambiente
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GOOGLE_EMBEDDING_MODEL = os.getenv("GOOGLE_EMBEDDING_MODEL") or "models/gemini-embedding-001"
-GOOGLE_CHAT_MODEL = os.getenv("GOOGLE_CHAT_MODEL", "gemini-flash-lite-latest")
 DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql+psycopg://postgres:postgres@localhost:5432/rag"
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
@@ -32,6 +29,10 @@ from search import (
     ask_and_get_pages,
     get_vector_store,
     get_llm,
+    AI_PROVIDER,
+    ACTIVE_EMBEDDING_MODEL,
+    ACTIVE_CHAT_MODEL,
+    get_masked_key,
 )
 
 try:
@@ -71,6 +72,8 @@ def get_chunk_count() -> int:
 
 def print_banner():
     """Renderiza o banner de boas-vindas com visual moderno e profissional."""
+    provedor_label = "OpenAI" if AI_PROVIDER == "openai" else "Google Gemini"
+    
     if USE_RICH:
         total_chunks = get_chunk_count()
         chunk_badge = f"{total_chunks} chunks indexados" if total_chunks > 0 else "Indexando..."
@@ -78,8 +81,10 @@ def print_banner():
         banner_text = (
             "[bold white]Ingestão e Busca Semântica com LangChain e Postgres[/bold white]\n"
             "[cyan]Desafio MBA • Engenharia de Software com IA[/cyan]\n\n"
-            f"[dim]LLM:[/dim] [bold green]{GOOGLE_CHAT_MODEL}[/bold green]  •  "
-            f"[dim]Embeddings:[/dim] [bold green]{GOOGLE_EMBEDDING_MODEL}[/bold green]\n"
+            f"[dim]Provedor:[/dim] [bold cyan]{provedor_label}[/bold cyan]  •  "
+            f"[dim]Chave:[/dim] [dim green]{get_masked_key()}[/dim green]\n"
+            f"[dim]LLM:[/dim] [bold green]{ACTIVE_CHAT_MODEL}[/bold green]  •  "
+            f"[dim]Embeddings:[/dim] [bold green]{ACTIVE_EMBEDDING_MODEL}[/bold green]\n"
             f"[dim]Base:[/dim] [bold yellow]PostgreSQL + pgvector[/bold yellow] ([yellow]{chunk_badge}[/yellow])  •  "
             f"[dim]Top-K:[/dim] [bold magenta]{TOP_K}[/bold magenta]\n\n"
             "[dim]Comandos:[/dim] "
@@ -105,7 +110,8 @@ def print_banner():
 
     print("\n" + "=" * 65)
     print("  Ingestão e Busca Semântica com LangChain e Postgres")
-    print(f"  Modelo: {GOOGLE_CHAT_MODEL} | pgVector (k={TOP_K})")
+    print(f"  Provedor: {provedor_label} | Modelo: {ACTIVE_CHAT_MODEL}")
+    print(f"  Embeddings: {ACTIVE_EMBEDDING_MODEL} | pgVector (k={TOP_K})")
     print("  Comandos: /info, /limpar, /sair")
     print("=" * 65 + "\n")
 
@@ -113,6 +119,7 @@ def print_banner():
 def show_system_info():
     """Exibe painel detalhado com parâmetros de ingestão, busca semântica e infraestrutura."""
     total_chunks = get_chunk_count()
+    provedor_label = "OpenAI" if AI_PROVIDER == "openai" else "Google Gemini"
 
     if USE_RICH:
         table = Table(
@@ -126,23 +133,28 @@ def show_system_info():
         table.add_column("Especificação", style="bold white", width=28)
         table.add_column("Valor / Configuração Ativa", style="green")
 
-        table.add_row("[yellow]INFRAESTRUTURA[/yellow]", "")
+        table.add_row("[yellow]CONFIGURAÇÃO DE IA[/yellow]", "")
+        table.add_row("  Provedor Ativo", f"{provedor_label} (AI_PROVIDER={AI_PROVIDER})")
+        table.add_row("  Chave de API", f"{get_masked_key()} (carregada do .env)")
+        table.add_row("  Modelo LLM (Geração)", f"{ACTIVE_CHAT_MODEL} (temperatura: 0.0)")
+        table.add_row("  Modelo de Embeddings", f"{ACTIVE_EMBEDDING_MODEL}")
+        table.add_section()
+
+        table.add_row("[yellow]INFRAESTRUTURA & ARMAZENAMENTO[/yellow]", "")
         table.add_row("  Banco de Dados", "PostgreSQL 17 + pgvector (localhost:5432/rag)")
-        table.add_row("  Coleção no pgvector", f"{PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks armazenados)")
+        table.add_row("  Coleção no pgvector", f"{PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks)")
         table.add_row("  Driver / Conexão", "psycopg 3 (Pool Singleton ativo)")
         table.add_section()
 
         table.add_row("[yellow]INGESTÃO DE DADOS[/yellow]", "")
-        table.add_row("  Documento Fonte", f"{PDF_PATH} (34 páginas, ~175 KB)")
+        table.add_row("  Documento Fonte", f"{PDF_PATH} (34 páginas)")
         table.add_row("  Divisão de Texto (Split)", f"{CHUNK_SIZE} caracteres por chunk (overlap: {CHUNK_OVERLAP})")
-        table.add_row("  Estratégia de Ingestão", "Idempotente (SHA-256 verificado)")
+        table.add_row("  Estratégia de Ingestão", "Idempotente (SHA-256 + verificação de dimensão)")
         table.add_section()
 
-        table.add_row("[yellow]INTELIGÊNCIA ARTIFICIAL & BUSCA[/yellow]", "")
-        table.add_row("  Modelo de Embeddings", f"{GOOGLE_EMBEDDING_MODEL} (768 dimensões)")
-        table.add_row("  Modelo LLM (Geração)", f"{GOOGLE_CHAT_MODEL} (temperatura: 0.0)")
-        table.add_row("  Recuperação Semântica", f"Top-{TOP_K} chunks mais relevantes (k={TOP_K})")
-        table.add_row("  Protocolo de Transporte", "REST API (otimizado para ambientes Windows)")
+        table.add_row("[yellow]RECUPERAÇÃO SEMÂNTICA[/yellow]", "")
+        table.add_row("  Parâmetro de Busca", f"Top-{TOP_K} chunks mais relevantes (k={TOP_K})")
+        table.add_row("  Formato de Saída", "Estrito (PERGUNTA / RESPOSTA)")
 
         console.print()
         console.print(table)
@@ -150,12 +162,14 @@ def show_system_info():
         return
 
     print("\n--- Parâmetros do Pipeline: Ingestão e Busca Semântica ---")
+    print(f"Provedor Ativo: {provedor_label} ({AI_PROVIDER})")
+    print(f"Chave de API: {get_masked_key()}")
+    print(f"Modelo LLM: {ACTIVE_CHAT_MODEL} (temp: 0.0)")
+    print(f"Modelo de Embeddings: {ACTIVE_EMBEDDING_MODEL}")
     print(f"Banco de Dados: PostgreSQL 17 + pgvector (localhost:5432/rag)")
     print(f"Coleção pgvector: {PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks)")
     print(f"Documento Fonte: {PDF_PATH} (34 páginas)")
     print(f"Segmentação: {CHUNK_SIZE} chars / overlap {CHUNK_OVERLAP}")
-    print(f"Embeddings: {GOOGLE_EMBEDDING_MODEL}")
-    print(f"Modelo LLM: {GOOGLE_CHAT_MODEL} (temp: 0.0)")
     print(f"Busca Semântica: Top-{TOP_K} chunks")
     print("----------------------------------------------------------\n")
 
@@ -183,14 +197,18 @@ def main():
     # Execução direta via flag --query (para testes e automação)
     if args.query:
         pergunta = args.query.strip()
-        resposta, _paginas = ask_and_get_pages(pergunta)
-
-        if USE_RICH:
-            console.print(f"[bold yellow]PERGUNTA:[/bold yellow] {pergunta}")
-            console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}")
-        else:
-            print(f"PERGUNTA: {pergunta}")
-            print(f"RESPOSTA: {resposta}")
+        try:
+            resposta, _paginas = ask_and_get_pages(pergunta)
+            if USE_RICH:
+                console.print(f"[bold yellow]PERGUNTA:[/bold yellow] {pergunta}")
+                console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}")
+            else:
+                print(f"PERGUNTA: {pergunta}")
+                print(f"RESPOSTA: {resposta}")
+        except RuntimeError as re_err:
+            print(str(re_err))
+        except Exception as e:
+            print(f"Erro ao processar consulta: {e}")
         return
 
     print_banner()
@@ -237,7 +255,6 @@ def main():
                 with console.status("[bold cyan]Buscando no PostgreSQL e gerando resposta...[/bold cyan]", spinner="dots"):
                     resposta, _paginas = ask_and_get_pages(pergunta)
 
-                # Formato padrão estrito exigido pelo desafio
                 console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}\n")
             else:
                 print("[Buscando no banco e consultando IA...]\r", end="", flush=True)
@@ -252,6 +269,11 @@ def main():
             else:
                 print("\nEncerrando...\n")
             break
+        except RuntimeError as re_err:
+            if USE_RICH:
+                console.print(f"[bold yellow]{re_err}[/bold yellow]\n")
+            else:
+                print(f"{re_err}\n")
         except Exception as e:
             if USE_RICH:
                 console.print(f"\n[bold red]Erro ao processar pergunta:[/bold red] [red]{e}[/red]\n")
