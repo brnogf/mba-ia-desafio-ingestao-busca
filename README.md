@@ -72,7 +72,7 @@ AI_PROVIDER=gemini   # Para forçar o uso do Google Gemini
 - **Framework RAG:** Escolha do **LangChain** pela abstração robusta na orquestração de LLMs e integração nativa com o ecossistema de Vector Stores.
 - **Armazenamento Vetorial:** Adoção do **PostgreSQL + pgVector** ao invés de bancos NoSQL puramente vetoriais (como Pinecone ou Chroma) por garantir persistência relacional transacional aliada à busca semântica em um único contêiner local, facilitando a portabilidade do ambiente.
 - **Modelos Escolhidos:** Optou-se pela utilização das bibliotecas oficiais (`langchain-openai` e `langchain-google-genai`) visando o balanço ideal entre latência, custo e qualidade de embedding.
-- **Proteção contra Incompatibilidade de Dimensões:** A extensão `pgvector` exige que todos os vetores comparados tenham a mesma dimensão (ex: OpenAI usa 1536 dims, Gemini usa 768 ou 3072 dims). O pipeline possui auto-detecção dessa incompatibilidade: ao trocar de modelo, o `ingest.py` identifica a alteração, limpa os dados antigos e reindexa automaticamente.
+- **Proteção contra Incompatibilidade de Dimensões:** A extensão `pgvector` exige que todos os vetores comparados tenham a mesma dimensão (ex: OpenAI usa 1536 dims, Gemini usa 768 ou 3072 dims). O pipeline possui **auto-recuperação 100% transparente**: ao detectar qualquer alteração de API key ou modelo de embeddings, o sistema sincroniza, limpa dados antigos e reindexa o banco automaticamente em background, sem exigir comandos manuais do usuário.
 
 ---
 
@@ -121,7 +121,6 @@ Realize a carga (ingestão) do documento para o banco de dados:
 ```bash
 python src/ingest.py
 ```
-*(Para forçar a recriação do zero a qualquer momento, use `python src/ingest.py --force`).*
 
 Inicie a interface de comunicação (CLI):
 ```bash
@@ -137,10 +136,10 @@ python src/chat.py -q "Qual é o faturamento da empresa Alfa Agronegócio Indús
 
 ## 🛑 Troubleshooting e Mapeamento de Exceções
 
-- **Troca de Provedor de Embeddings (Dimension Mismatch):**
+- **Troca de Provedor de Embeddings (Dimension Mismatch / Auto-Recovery):**
   - *Cenário:* Você indexou o banco inicialmente com um provedor (ex: OpenAI) e posteriormente alterou o `.env` para usar outro (ex: Gemini).
-  - *Comportamento do Sistema:* O `chat.py` detecta a diferença de dimensões e emite uma mensagem amigável instruindo a reindexação. O script `ingest.py` detecta a mudança de dimensão automaticamente ao ser executado.
-  - *Solução:* Execute `python src/ingest.py --force` para atualizar a coleção com o novo modelo.
+  - *Comportamento do Sistema:* O sistema detecta a diferença de dimensões vetoriais e executa a sincronização e reindexação automaticamente de forma transparente. No terminal, apenas avisa que uma mudança foi detectada e que o procedimento de atualização está sendo executado.
+  - *Ação do Usuário:* Nenhuma intervenção manual necessária. O próprio sistema conclui o processo e responde a consulta normalmente.
 
 - **Erro de Autenticação na API (HTTP 401 / 429 - Quota Exceeded):**
   - *Cenário:* A execução de `ingest.py` ou `chat.py` retorna falhas de autenticação com a LLM.

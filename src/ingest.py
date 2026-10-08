@@ -137,11 +137,11 @@ def delete_existing_chunks():
 
 def ingest_pdf(force_reset: bool = False):
     """
-    Executa a ingestão do documento PDF de forma 100% idempotente:
+    Executa a ingestão do documento PDF de forma 100% idempotente e auto-recuperável:
     - Fatiamento nos padrões Full Cycle (chunk_size=1000, chunk_overlap=150)
     - Suporte dual transparente para OpenAI e Google Gemini
     - Auto-detecção de incompatibilidade de dimensões vetoriais no PostgreSQL
-    - IDs determinísticos que garantem que nunca haverá duplicações
+    - Sincronização automática quando detectada troca de API key / modelo de embeddings
     """
     pdf_file = Path(PDF_PATH)
     if not pdf_file.is_file():
@@ -157,13 +157,11 @@ def ingest_pdf(force_reset: bool = False):
     existing_count = count_existing_chunks(file_hash)
 
     if stored_dims is not None and existing_count > 0:
-        # Testa a dimensão do modelo atual gerando um embedding de teste
         try:
             current_model_dim = len(embeddings.embed_query("dim_check"))
             if stored_dims != current_model_dim:
-                print(f"\n⚠️ [TROCA DE PROVEDOR DETECTADA]")
-                print(f"   Dimensão no banco: {stored_dims} | Novo modelo ({AI_PROVIDER}): {current_model_dim} dimensões.")
-                print("   Limpando vetores antigos incompatíveis para reindexação automática...")
+                print(f"\n⚠️ Detectada mudança de API key / modelo de embeddings ({stored_dims} -> {current_model_dim} dimensões).")
+                print("   Sincronizando e atualizando o banco de dados automaticamente, por favor aguarde...\n")
                 force_reset = True
         except Exception:
             pass
@@ -172,12 +170,11 @@ def ingest_pdf(force_reset: bool = False):
     if existing_count > 0 and not force_reset:
         print(f"\n[IDEMPOTÊNCIA ATIVA] O documento '{pdf_file.name}' já está gravado no banco ({existing_count} chunks encontrados).")
         print(f"Provedor ativo: {AI_PROVIDER.upper()} | Modelo: {ACTIVE_EMBEDDING_MODEL}")
-        print("Nenhum embedding novo precisa ser gerado (Economia de 100% da cota da sua API).")
-        print("Para forçar a reinserção do zero, use: python src/ingest.py --force\n")
+        print("Nenhum embedding novo precisa ser gerado (Economia de 100% da cota da sua API).\n")
         return
 
     if force_reset:
-        print("   Limpando dados anteriores para re-ingestão forçada...")
+        print("   Atualizando dados no banco para o novo modelo de embeddings...")
         delete_existing_chunks()
 
     loader = PyPDFLoader(str(pdf_file))
@@ -202,7 +199,6 @@ def ingest_pdf(force_reset: bool = False):
         chunk.metadata["doc_hash"] = file_hash
         chunk.metadata["chunk_index"] = idx
         
-        # ID determinístico único por hash e posição do chunk
         chunk_id = f"{file_hash[:10]}_p{page_num:03d}_c{idx:04d}"
         chunk_ids.append(chunk_id)
 
@@ -217,7 +213,6 @@ def ingest_pdf(force_reset: bool = False):
     )
 
     print("5. Armazenando vetores no banco de dados...")
-    # Estratégia de batch adaptativa por provedor
     if AI_PROVIDER == "gemini":
         batch_size = 5
         sleep_between_batches = 20

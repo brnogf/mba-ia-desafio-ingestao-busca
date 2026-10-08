@@ -36,7 +36,6 @@ GOOGLE_CHAT_MODEL = os.getenv("GOOGLE_CHAT_MODEL") or "gemini-flash-lite-latest"
 ACTIVE_EMBEDDING_MODEL = OPENAI_EMBEDDING_MODEL if AI_PROVIDER == "openai" else GOOGLE_EMBEDDING_MODEL
 ACTIVE_CHAT_MODEL = OPENAI_CHAT_MODEL if AI_PROVIDER == "openai" else GOOGLE_CHAT_MODEL
 
-# Mascaramento seguro de chaves para auditoria e interface
 def get_masked_key() -> str:
     key = OPENAI_API_KEY if AI_PROVIDER == "openai" else GOOGLE_API_KEY
     if not key:
@@ -109,10 +108,49 @@ def get_embeddings():
         )
 
 
+def sync_if_needed():
+    """
+    Garante sincronização 100% transparente:
+    - Se o banco estiver vazio, realiza a ingestão inicial automaticamente.
+    - Se houver alteração de modelo de embedding/API key (dimensões incompatíveis),
+      executa a atualização forçada e transparente sem exigir comandos manuais do usuário.
+    """
+    global _CACHED_VECTOR_STORE
+    try:
+        from ingest import get_stored_vector_dims, count_existing_chunks, calculate_file_hash, ingest_pdf, PDF_PATH
+        from pathlib import Path
+
+        pdf_file = Path(PDF_PATH)
+        if not pdf_file.is_file():
+            return
+
+        file_hash = calculate_file_hash(pdf_file)
+        existing_chunks = count_existing_chunks(file_hash)
+
+        if existing_chunks == 0:
+            print("\n⚠️ Banco de dados não indexado. Realizando a ingestão inicial do documento automaticamente...\n")
+            ingest_pdf(force_reset=False)
+            _CACHED_VECTOR_STORE = None
+            return
+
+        stored_dims = get_stored_vector_dims()
+        if stored_dims is not None:
+            emb = get_embeddings()
+            current_dim = len(emb.embed_query("dim_check"))
+            if stored_dims != current_dim:
+                print(f"\n⚠️ Detectada mudança de API key / modelo de embeddings ({stored_dims} -> {current_dim} dimensões).")
+                print("   Sincronizando e atualizando o banco de dados automaticamente, por favor aguarde...\n")
+                ingest_pdf(force_reset=True)
+                _CACHED_VECTOR_STORE = None
+    except Exception:
+        pass
+
+
 def get_vector_store() -> PGVector:
-    """Inicializa uma única vez e reutiliza o pool de conexões do PostgreSQL."""
+    """Inicializa e reutiliza o pool de conexões do PostgreSQL com sincronização transparente."""
     global _CACHED_VECTOR_STORE
     if _CACHED_VECTOR_STORE is None:
+        sync_if_needed()
         embeddings = get_embeddings()
         _CACHED_VECTOR_STORE = PGVector(
             embeddings=embeddings,
@@ -146,20 +184,23 @@ def get_llm() -> Union[ChatGoogleGenerativeAI, ChatOpenAI]:
 def search_context_and_pages(query: str, vector_store: PGVector) -> Tuple[str, List[int], float]:
     """
     Recupera os k=10 chunks mais relevantes e extrai as páginas citadas.
-    Trata de forma elegante eventual incompatibilidade de dimensões vetoriais.
+    Em caso de incompatibilidade de dimensões em runtime, executa auto-recuperação transparente.
     """
+    global _CACHED_VECTOR_STORE
     try:
         results = vector_store.similarity_search_with_score(query, k=TOP_K)
     except Exception as e:
         err_str = str(e).lower()
         if "different vector dimensions" in err_str or "dataerror" in err_str:
-            raise RuntimeError(
-                f"\n⚠️ [INCOMPATIBILIDADE DE VETORES DETECTADA]\n"
-                f"O banco de dados foi populado com outro modelo de embedding diferente do ativo ({AI_PROVIDER.upper()}: {ACTIVE_EMBEDDING_MODEL}).\n"
-                f"Para sincronizar o banco com o novo modelo, execute no terminal:\n"
-                f"  python src/ingest.py --force\n"
-            ) from e
-        raise e
+            print(f"\n⚠️ Detectada mudança de API key / modelo de embeddings no banco de dados.")
+            print("   Sincronizando e atualizando os vetores automaticamente, por favor aguarde...\n")
+            from ingest import ingest_pdf
+            ingest_pdf(force_reset=True)
+            _CACHED_VECTOR_STORE = None
+            vector_store = get_vector_store()
+            results = vector_store.similarity_search_with_score(query, k=TOP_K)
+        else:
+            raise e
     
     if not results:
         return "", [], 1.0
@@ -222,6 +263,7 @@ def ask_and_get_pages(query: str) -> Tuple[str, List[int]]:
     Executa a busca RAG completa e retorna a resposta junto com a página exata
     onde a informação foi localizada no documento.
     """
+    global _CACHED_VECTOR_STORE
     vector_store = get_vector_store()
     llm = get_llm()
     prompt = PromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -231,13 +273,15 @@ def ask_and_get_pages(query: str) -> Tuple[str, List[int]]:
     except Exception as e:
         err_str = str(e).lower()
         if "different vector dimensions" in err_str or "dataerror" in err_str:
-            raise RuntimeError(
-                f"\n⚠️ [INCOMPATIBILIDADE DE VETORES DETECTADA]\n"
-                f"O banco de dados foi populado com outro modelo de embedding diferente do ativo ({AI_PROVIDER.upper()}: {ACTIVE_EMBEDDING_MODEL}).\n"
-                f"Para sincronizar o banco com o novo modelo, execute no terminal:\n"
-                f"  python src/ingest.py --force\n"
-            ) from e
-        raise e
+            print(f"\n⚠️ Detectada mudança de API key / modelo de embeddings no banco de dados.")
+            print("   Sincronizando e atualizando os vetores automaticamente, por favor aguarde...\n")
+            from ingest import ingest_pdf
+            ingest_pdf(force_reset=True)
+            _CACHED_VECTOR_STORE = None
+            vector_store = get_vector_store()
+            results = vector_store.similarity_search_with_score(query, k=TOP_K)
+        else:
+            raise e
 
     if not results:
         return FALLBACK_RESPONSE, []
