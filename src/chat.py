@@ -77,13 +77,13 @@ def print_banner():
         chunk_badge = f"{total_chunks} chunks indexados" if total_chunks > 0 else "Indexando..."
 
         banner_text = (
-            "[bold white]FULL CYCLE MBA • ENGENHARIA DE SOFTWARE COM IA[/bold white]\n"
-            "[cyan]Assistente de Busca Semântica e RAG com PostgreSQL (pgvector)[/cyan]\n\n"
+            "[bold white]Ingestão e Busca Semântica com LangChain e Postgres[/bold white]\n"
+            "[cyan]Desafio MBA • Engenharia de Software com IA[/cyan]\n\n"
             f"[dim]LLM:[/dim] [bold green]{GOOGLE_CHAT_MODEL}[/bold green]  •  "
             f"[dim]Embeddings:[/dim] [bold green]{GOOGLE_EMBEDDING_MODEL}[/bold green]\n"
             f"[dim]Base:[/dim] [bold yellow]PostgreSQL + pgvector[/bold yellow] ([yellow]{chunk_badge}[/yellow])  •  "
             f"[dim]Top-K:[/dim] [bold magenta]{TOP_K}[/bold magenta]\n\n"
-            "[dim]Comandos:[/dim] [bold cyan]/ajuda[/bold cyan] [dim]|[/dim] "
+            "[dim]Comandos:[/dim] "
             "[bold cyan]/info[/bold cyan] [dim]|[/dim] "
             "[bold cyan]/limpar[/bold cyan] [dim]|[/dim] "
             "[bold cyan]/sair[/bold cyan]"
@@ -91,7 +91,7 @@ def print_banner():
 
         banner = Panel(
             banner_text,
-            title="[bold cyan]• RAG Terminal Assistant •[/bold cyan]",
+            title="[bold cyan]• Ingestão e Busca Semântica com LangChain e Postgres •[/bold cyan]",
             border_style="cyan",
             box=box.ROUNDED,
             padding=(1, 2),
@@ -104,20 +104,20 @@ def print_banner():
         except Exception:
             pass
 
-    print("\n" + "=" * 55)
-    print("  FULL CYCLE MBA - CHATBOT RAG (MVP)")
+    print("\n" + "=" * 65)
+    print("  Ingestão e Busca Semântica com LangChain e Postgres")
     print(f"  Modelo: {GOOGLE_CHAT_MODEL} | pgVector (k={TOP_K})")
-    print("  Comandos: /ajuda, /info, /limpar, /sair")
-    print("=" * 55 + "\n")
+    print("  Comandos: /info, /limpar, /sair")
+    print("=" * 65 + "\n")
 
 
 def show_system_info():
-    """Exibe painel detalhado de diagnóstico da infraestrutura e parâmetros."""
+    """Exibe painel detalhado com parâmetros de ingestão, busca semântica e infraestrutura."""
     total_chunks = get_chunk_count()
 
     if USE_RICH:
         table = Table(
-            title="[bold cyan]Diagnóstico Técnico & Parâmetros do Sistema (RAG)[/bold cyan]",
+            title="[bold cyan]Parâmetros do Pipeline: Ingestão e Busca Semântica[/bold cyan]",
             box=box.ROUNDED,
             header_style="bold cyan",
             border_style="dim cyan",
@@ -139,7 +139,7 @@ def show_system_info():
         table.add_row("  Estratégia de Ingestão", "Idempotente (SHA-256 verificado)")
         table.add_section()
 
-        table.add_row("[yellow]INTELIGÊNCIA ARTIFICIAL[/yellow]", "")
+        table.add_row("[yellow]INTELIGÊNCIA ARTIFICIAL & BUSCA[/yellow]", "")
         table.add_row("  Modelo de Embeddings", f"{GOOGLE_EMBEDDING_MODEL} (768 dimensões)")
         table.add_row("  Modelo LLM (Geração)", f"{GOOGLE_CHAT_MODEL} (temperatura: 0.0)")
         table.add_row("  Recuperação Semântica", f"Top-{TOP_K} chunks mais relevantes (k={TOP_K})")
@@ -151,7 +151,7 @@ def show_system_info():
         console.print()
         return
 
-    print("\n--- Diagnóstico Técnico (RAG) ---")
+    print("\n--- Parâmetros do Pipeline: Ingestão e Busca Semântica ---")
     print(f"Banco de Dados: PostgreSQL 17 + pgvector (localhost:5432/rag)")
     print(f"Coleção pgvector: {PG_VECTOR_COLLECTION_NAME} ({total_chunks} chunks)")
     print(f"Documento Fonte: {PDF_PATH} (34 páginas)")
@@ -159,60 +159,11 @@ def show_system_info():
     print(f"Embeddings: {GOOGLE_EMBEDDING_MODEL}")
     print(f"Modelo LLM: {GOOGLE_CHAT_MODEL} (temp: 0.0)")
     print(f"Busca Semântica: Top-{TOP_K} chunks")
-    print("---------------------------------\n")
-
-
-def show_help():
-    """Exibe guia rápido com comandos, regras de RAG e exemplos de perguntas."""
-    if USE_RICH:
-        table = Table(
-            title="[bold cyan]Central de Ajuda • Comandos & Guia de Perguntas[/bold cyan]",
-            box=box.ROUNDED,
-            header_style="bold cyan",
-            border_style="dim cyan",
-            show_header=True,
-            padding=(0, 2),
-        )
-        table.add_column("Item", style="bold white", width=22)
-        table.add_column("Orientação / Exemplo Prático", style="white")
-
-        table.add_row("[yellow]COMANDOS DO CLI[/yellow]", "")
-        table.add_row("  /info", "Exibe diagnóstico técnico da infraestrutura e modelos")
-        table.add_row("  /limpar", "Limpa o terminal e restaura a visualização inicial")
-        table.add_row("  /ajuda", "Exibe esta referência de comandos e boas práticas")
-        table.add_row("  /sair", "Encerra o assistente de forma limpa")
-        table.add_section()
-
-        table.add_row("[yellow]DIRETRIZES DE RAG[/yellow]", "")
-        table.add_row("  Dado Explícito", "Cite o nome exato da empresa pesquisada (ex: SuperTechIABrazil)")
-        table.add_row("  Busca Posicional", "Evite termos como primeira empresa (chunks são recuperados por similaridade)")
-        table.add_row("  Fallback Estrito", "Perguntas fora do contexto retornam mensagem padrão sem alucinações")
-        table.add_section()
-
-        table.add_row("[yellow]EXEMPLOS DE TESTE[/yellow]", "")
-        table.add_row("  Consulta no PDF", "[cyan]Qual o faturamento da Empresa SuperTechIABrazil?[/cyan] (Exemplo oficial)")
-        table.add_row("  Consulta no PDF", "[cyan]Qual o faturamento da empresa Alfa Agronegócio Indústria?[/cyan]")
-        table.add_row("  Metadado no PDF", "[cyan]Em que ano foi fundada a empresa Alfa Energia S.A.?[/cyan]")
-        table.add_row("  Fora de Escopo", "[dim]Quantos clientes temos em 2024?[/dim] [yellow](Testa o fallback)[/yellow]")
-
-        console.print()
-        console.print(table)
-        console.print()
-        return
-
-    print("\n--- Central de Ajuda & Diretrizes ---")
-    print("Comandos: /info, /limpar, /ajuda, /sair")
-    print("Diretrizes de busca:")
-    print(" - Cite o nome exato da empresa (ex: SuperTechIABrazil)")
-    print(" - Evite buscas posicionais como 'primeira empresa'")
-    print("Exemplos:")
-    print(" - Qual o faturamento da Empresa SuperTechIABrazil?")
-    print(" - Quantos clientes temos em 2024? (teste de fallback)")
-    print("------------------------------------\n")
+    print("----------------------------------------------------------\n")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Full Cycle MBA - Assistente RAG de Busca Semântica")
+    parser = argparse.ArgumentParser(description="Ingestão e Busca Semântica com LangChain e Postgres")
     parser.add_argument("-q", "--query", type=str, help="Executa uma consulta direta e encerra")
     args = parser.parse_args()
 
@@ -231,27 +182,17 @@ def main():
             print("Não foi possível iniciar o chat. Verifique os erros de inicialização.")
         return
 
-    # Execução direta via flag --query (para testes automatizados e scripts)
+    # Execução direta via flag --query (para testes e automação)
     if args.query:
         pergunta = args.query.strip()
-        t0 = time.time()
-        resposta, paginas = ask_and_get_pages(pergunta)
-        elapsed = time.time() - t0
+        resposta, _paginas = ask_and_get_pages(pergunta)
 
         if USE_RICH:
             console.print(f"[bold yellow]PERGUNTA:[/bold yellow] {pergunta}")
             console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}")
-            if "Não tenho informações necessárias" not in resposta and paginas:
-                paginas_str = ", ".join(str(p) for p in paginas)
-                label = "Página da informação:" if len(paginas) == 1 else "Páginas da informação:"
-                console.print(f"[dim cyan]{label}[/dim cyan] [bold cyan]{paginas_str}[/bold cyan] [dim]({PDF_PATH}) • Tempo:[/dim] [dim green]{elapsed:.2f}s[/dim green]")
         else:
             print(f"PERGUNTA: {pergunta}")
             print(f"RESPOSTA: {resposta}")
-            if "Não tenho informações necessárias" not in resposta and paginas:
-                paginas_str = ", ".join(str(p) for p in paginas)
-                label = "Página da informação" if len(paginas) == 1 else "Páginas da informação"
-                print(f"[{label}: {paginas_str} ({PDF_PATH}) - {elapsed:.2f}s]")
         return
 
     print_banner()
@@ -293,49 +234,19 @@ def main():
                 show_system_info()
                 continue
 
-            if comando in ["/ajuda", "ajuda", "help", "/help", "?"]:
-                show_help()
-                continue
-
-            # Processamento da consulta com medição de latência
-            t0 = time.time()
-            resposta = ""
-            paginas = []
-
+            # Processamento da consulta
             if USE_RICH:
                 with console.status("[bold cyan]Buscando no PostgreSQL e gerando resposta...[/bold cyan]", spinner="dots"):
-                    resposta, paginas = ask_and_get_pages(pergunta)
-                elapsed = time.time() - t0
+                    resposta, _paginas = ask_and_get_pages(pergunta)
 
-                # Formato obrigatório para testes: PERGUNTA e RESPOSTA
-                console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}")
-
-                # Rodapé informando a página exata da informação
-                if "Não tenho informações necessárias" not in resposta and paginas:
-                    paginas_str = ", ".join(str(p) for p in paginas)
-                    label = "Página da informação:" if len(paginas) == 1 else "Páginas da informação:"
-                    console.print(
-                        f"[dim cyan]{label}[/dim cyan] [bold cyan]{paginas_str}[/bold cyan] "
-                        f"[dim]({PDF_PATH}) • Tempo:[/dim] [dim green]{elapsed:.2f}s[/dim green]\n"
-                    )
-                else:
-                    console.print(
-                        f"[dim yellow][Info][/dim yellow] [dim]Informação não encontrada no documento. "
-                        f"• Tempo: {elapsed:.2f}s[/dim]\n"
-                    )
+                # Formato padrão estrito exigido pelo desafio
+                console.print(f"[bold green]RESPOSTA:[/bold green] {resposta}\n")
             else:
                 print("[Buscando no banco e consultando IA...]\r", end="", flush=True)
-                resposta, paginas = ask_and_get_pages(pergunta)
-                elapsed = time.time() - t0
+                resposta, _paginas = ask_and_get_pages(pergunta)
                 print(" " * 55 + "\r", end="", flush=True)
 
-                print(f"RESPOSTA: {resposta}")
-                if "Não tenho informações necessárias" not in resposta and paginas:
-                    paginas_str = ", ".join(str(p) for p in paginas)
-                    label = "Página da informação" if len(paginas) == 1 else "Páginas da informação"
-                    print(f"[{label}: {paginas_str} ({PDF_PATH}) - {elapsed:.2f}s]\n")
-                else:
-                    print(f"[Tempo: {elapsed:.2f}s]\n")
+                print(f"RESPOSTA: {resposta}\n")
 
         except (KeyboardInterrupt, EOFError):
             if USE_RICH:
