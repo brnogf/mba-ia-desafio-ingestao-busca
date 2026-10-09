@@ -24,6 +24,14 @@ TOP_K = int(os.getenv("TOP_K", "10"))
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
 
+# Garante que os diretórios src/ e raiz estejam no sys.path
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+ROOT_DIR = os.path.dirname(CURRENT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 from search import (
     search_prompt,
     ask_and_get_pages,

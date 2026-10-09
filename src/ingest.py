@@ -9,6 +9,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Garante que os diretórios src/ e raiz estejam no sys.path
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+ROOT_DIR = os.path.dirname(CURRENT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 # Configuração e Detecção de Provedor de IA (OpenAI vs. Google Gemini)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
@@ -23,11 +31,6 @@ if not AI_PROVIDER:
         AI_PROVIDER = "openai"
     else:
         AI_PROVIDER = "gemini"
-
-if AI_PROVIDER == "openai" and not OPENAI_API_KEY:
-    raise ValueError("⚠️ ERRO: Provedor OpenAI selecionado, mas OPENAI_API_KEY não foi configurada no .env!")
-elif AI_PROVIDER == "gemini" and not GOOGLE_API_KEY:
-    raise ValueError("⚠️ ERRO: Provedor Gemini selecionado, mas GOOGLE_API_KEY não foi configurada no .env!")
 
 # Modelos configurados
 OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL") or "text-embedding-3-small"
@@ -54,11 +57,15 @@ from langchain_openai import OpenAIEmbeddings
 def get_embeddings():
     """Instancia o modelo de embeddings de acordo com o provedor ativo."""
     if AI_PROVIDER == "openai":
+        if not OPENAI_API_KEY:
+            raise ValueError("⚠️ ERRO: Provedor OpenAI selecionado, mas OPENAI_API_KEY não foi configurada no .env!")
         return OpenAIEmbeddings(
             model=OPENAI_EMBEDDING_MODEL,
             api_key=OPENAI_API_KEY,
         )
     else:
+        if not GOOGLE_API_KEY:
+            raise ValueError("⚠️ ERRO: Provedor Gemini selecionado, mas GOOGLE_API_KEY não foi configurada no .env!")
         return GoogleGenerativeAIEmbeddings(
             model=GOOGLE_EMBEDDING_MODEL,
             google_api_key=GOOGLE_API_KEY,
@@ -219,7 +226,22 @@ def ingest_pdf(force_reset: bool = False):
 
     total_batches = (len(chunks) + batch_size - 1) // batch_size
     
-    from tqdm import tqdm
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        class tqdm:
+            def __init__(self, total=None, desc="", unit="", **kwargs):
+                self.total = total or 1
+                self.n = 0
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def update(self, n=1):
+                self.n += n
+                print(f"   [{self.n}/{self.total}] Processando lotes de chunks...")
+            def write(self, msg):
+                print(msg)
     
     with tqdm(total=total_batches, desc="Processando lotes", unit="lote") as pbar:
         for i in range(0, len(chunks), batch_size):

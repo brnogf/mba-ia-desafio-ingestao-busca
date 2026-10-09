@@ -6,6 +6,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Garante que os diretórios src/ e raiz estejam no sys.path
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+ROOT_DIR = os.path.dirname(CURRENT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 # Configuração e Detecção de Provedor de IA (OpenAI vs. Google Gemini)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
@@ -21,10 +29,6 @@ if not AI_PROVIDER:
     else:
         AI_PROVIDER = "gemini"
 
-if AI_PROVIDER == "openai" and not OPENAI_API_KEY:
-    raise ValueError("⚠️ ERRO: Provedor OpenAI selecionado, mas OPENAI_API_KEY não foi configurada no .env!")
-elif AI_PROVIDER == "gemini" and not GOOGLE_API_KEY:
-    raise ValueError("⚠️ ERRO: Provedor Gemini selecionado, mas GOOGLE_API_KEY não foi configurada no .env!")
 
 # Modelos configurados
 OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL") or "text-embedding-3-small"
@@ -97,15 +101,20 @@ _CACHED_LLM: Optional[Union[ChatGoogleGenerativeAI, ChatOpenAI]] = None
 def get_embeddings():
     """Instancia o modelo de embeddings de acordo com o provedor ativo."""
     if AI_PROVIDER == "openai":
+        if not OPENAI_API_KEY:
+            raise ValueError("⚠️ ERRO: Provedor OpenAI selecionado, mas OPENAI_API_KEY não foi configurada no .env!")
         return OpenAIEmbeddings(
             model=OPENAI_EMBEDDING_MODEL,
             api_key=OPENAI_API_KEY,
         )
     else:
+        if not GOOGLE_API_KEY:
+            raise ValueError("⚠️ ERRO: Provedor Gemini selecionado, mas GOOGLE_API_KEY não foi configurada no .env!")
         return GoogleGenerativeAIEmbeddings(
             model=GOOGLE_EMBEDDING_MODEL,
             google_api_key=GOOGLE_API_KEY,
         )
+
 
 
 def sync_if_needed():
@@ -135,10 +144,10 @@ def sync_if_needed():
 
         stored_dims = get_stored_vector_dims()
         if stored_dims is not None:
-            emb = get_embeddings()
-            current_dim = len(emb.embed_query("dim_check"))
-            if stored_dims != current_dim:
-                print(f"\n⚠️ Detectada mudança de API key / modelo de embeddings ({stored_dims} -> {current_dim} dimensões).")
+            expected_dims = 1536 if AI_PROVIDER == "openai" else 3072
+            # Se houver troca clara entre OpenAI (1536) e Gemini (3072/768), sincroniza
+            if (AI_PROVIDER == "openai" and stored_dims != 1536) or (AI_PROVIDER == "gemini" and stored_dims not in (768, 3072)):
+                print(f"\n⚠️ Detectada mudança de API key / modelo de embeddings ({stored_dims} -> {expected_dims} dimensões).")
                 print("   Sincronizando e atualizando o banco de dados automaticamente, por favor aguarde...\n")
                 ingest_pdf(force_reset=True)
                 _CACHED_VECTOR_STORE = None
@@ -166,12 +175,16 @@ def get_llm() -> Union[ChatGoogleGenerativeAI, ChatOpenAI]:
     global _CACHED_LLM
     if _CACHED_LLM is None:
         if AI_PROVIDER == "openai":
+            if not OPENAI_API_KEY:
+                raise ValueError("⚠️ ERRO: Provedor OpenAI selecionado, mas OPENAI_API_KEY não foi configurada no .env!")
             _CACHED_LLM = ChatOpenAI(
                 model=OPENAI_CHAT_MODEL,
                 api_key=OPENAI_API_KEY,
                 temperature=0.0,
             )
         else:
+            if not GOOGLE_API_KEY:
+                raise ValueError("⚠️ ERRO: Provedor Gemini selecionado, mas GOOGLE_API_KEY não foi configurada no .env!")
             _CACHED_LLM = ChatGoogleGenerativeAI(
                 model=GOOGLE_CHAT_MODEL,
                 google_api_key=GOOGLE_API_KEY,
@@ -179,6 +192,7 @@ def get_llm() -> Union[ChatGoogleGenerativeAI, ChatOpenAI]:
                 transport="rest",
             )
     return _CACHED_LLM
+
 
 
 def search_context_and_pages(query: str, vector_store: PGVector) -> Tuple[str, List[int], float]:
