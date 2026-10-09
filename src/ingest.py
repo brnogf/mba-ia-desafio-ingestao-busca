@@ -157,14 +157,11 @@ def ingest_pdf(force_reset: bool = False):
     existing_count = count_existing_chunks(file_hash)
 
     if stored_dims is not None and existing_count > 0:
-        try:
-            current_model_dim = len(embeddings.embed_query("dim_check"))
-            if stored_dims != current_model_dim:
-                print(f"\n⚠️ Detectada mudança de API key / modelo de embeddings ({stored_dims} -> {current_model_dim} dimensões).")
-                print("   Sincronizando e atualizando o banco de dados automaticamente, por favor aguarde...\n")
-                force_reset = True
-        except Exception:
-            pass
+        expected_dims = 1536 if AI_PROVIDER == "openai" else 3072
+        if (AI_PROVIDER == "openai" and stored_dims != 1536) or (AI_PROVIDER == "gemini" and stored_dims not in (768, 3072)):
+            print(f"\n⚠️ Detectada mudança de API key / modelo de embeddings ({stored_dims} -> {expected_dims} dimensões).")
+            print("   Sincronizando e atualizando o banco de dados automaticamente, por favor aguarde...\n")
+            force_reset = True
 
     # Verificação de idempotência prévia:
     if existing_count > 0 and not force_reset:
@@ -222,28 +219,30 @@ def ingest_pdf(force_reset: bool = False):
 
     total_batches = (len(chunks) + batch_size - 1) // batch_size
     
-    for i in range(0, len(chunks), batch_size):
-        batch_chunks = chunks[i : i + batch_size]
-        batch_ids = chunk_ids[i : i + batch_size]
-        batch_num = (i // batch_size) + 1
-        print(f"   Processando lote {batch_num}/{total_batches} ({len(batch_chunks)} chunks)...")
+    from tqdm import tqdm
+    
+    with tqdm(total=total_batches, desc="Processando lotes", unit="lote") as pbar:
+        for i in range(0, len(chunks), batch_size):
+            batch_chunks = chunks[i : i + batch_size]
+            batch_ids = chunk_ids[i : i + batch_size]
 
-        for attempt in range(3):
-            try:
-                vector_store.add_documents(batch_chunks, ids=batch_ids)
-                break
-            except Exception as e:
-                if "429" in str(e) and attempt < 2:
-                    wait_time = (attempt + 1) * 30
-                    print(f"   Rate limit atingido (429). Aguardando {wait_time}s para reset de cota...")
-                    time.sleep(wait_time)
-                else:
-                    raise e
-                    
-        if i + batch_size < len(chunks):
-            time.sleep(sleep_between_batches)
+            for attempt in range(3):
+                try:
+                    vector_store.add_documents(batch_chunks, ids=batch_ids)
+                    break
+                except Exception as e:
+                    if "429" in str(e) and attempt < 2:
+                        wait_time = (attempt + 1) * 30
+                        pbar.write(f"   Rate limit atingido (429). Aguardando {wait_time}s para reset de cota...")
+                        time.sleep(wait_time)
+                    else:
+                        raise e
+                        
+            if i + batch_size < len(chunks):
+                time.sleep(sleep_between_batches)
+            pbar.update(1)
 
-    print("Ingestão concluída com sucesso no PostgreSQL + pgVector!")
+    print("\n✅ Ingestão concluída com sucesso no PostgreSQL + pgVector!")
 
 
 if __name__ == "__main__":
