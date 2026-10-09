@@ -149,3 +149,11 @@ python src/chat.py -q "Qual é o faturamento da empresa Alfa Agronegócio Indús
 - **Falha de Conexão com o Docker:**
   - *Cenário:* Ao rodar `docker compose up -d`, o terminal exibe erro de conexão com daemon.
   - *Solução:* Certifique-se de que o Docker Desktop está aberto e em execução.
+
+---
+
+## 👤 Autoria
+
+- **Estudante:** Breno Gomes Fernandes
+- **Programa:** MBA em Engenharia de Software com IA — Full Cycle
+- **Desafio:** Ingestão e Busca Semântica com LangChain e PostgreSQL (pgVector)
